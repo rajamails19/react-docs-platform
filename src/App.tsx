@@ -4,7 +4,8 @@ import { ThemeProvider } from '@/contexts/ThemeContext'
 import { ProgressProvider } from '@/contexts/ProgressContext'
 import { Home } from '@/pages/Home'
 
-const TutorialPage = lazy(() => import('@/pages/TutorialPage').then(m => ({ default: m.TutorialPage })))
+const TutorialPage   = lazy(() => import('@/pages/TutorialPage').then(m => ({ default: m.TutorialPage })))
+const BookmarksPage  = lazy(() => import('@/pages/BookmarksPage').then(m => ({ default: m.BookmarksPage })))
 
 function PageLoader() {
   return (
@@ -24,9 +25,10 @@ export default function App() {
         <ProgressProvider>
           <Suspense fallback={<PageLoader />}>
             <Routes>
-              <Route path="/"       element={<Home />} />
-              <Route path="/docs/*" element={<TutorialPage />} />
-              <Route path="*"       element={<Navigate to="/" replace />} />
+              <Route path="/"            element={<Home />} />
+              <Route path="/docs/*"      element={<TutorialPage />} />
+              <Route path="/bookmarks"   element={<BookmarksPage />} />
+              <Route path="*"            element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>
         </ProgressProvider>
