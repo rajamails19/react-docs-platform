@@ -1,0 +1,455 @@
+---
+title: Default Props
+description: Provide sensible fallback values for optional props using destructuring defaults, defaultProps, and TypeScript optional typing.
+category: Props
+order: 2
+slug: props/default-props
+difficulty: beginner
+estimatedTime: 12
+tags: [default props, destructuring, optional props, TypeScript, defaultProps, functional components]
+lastUpdated: "2024-01-15"
+---
+
+# Default Props
+
+Default props let you specify fallback values for optional props. When a consumer doesn't pass a prop, the component uses the default instead of receiving `undefined`.
+
+## The Modern Way: Destructuring Defaults
+
+The recommended approach for functional components is to set defaults directly in the destructuring assignment. This is standard JavaScript — no React-specific API needed.
+
+```tsx
+interface ButtonProps {
+  label: string
+  variant?: 'primary' | 'secondary' | 'ghost'
+  size?: 'sm' | 'md' | 'lg'
+  disabled?: boolean
+  type?: 'button' | 'submit' | 'reset'
+}
+
+function Button({
+  label,
+  variant = 'primary',     // default: 'primary'
+  size = 'md',             // default: 'md'
+  disabled = false,        // default: false
+  type = 'button',         // default: 'button'
+}: ButtonProps) {
+  return (
+    <button
+      type={type}
+      disabled={disabled}
+      className={`btn btn-${variant} btn-${size}`}
+    >
+      {label}
+    </button>
+  )
+}
+
+// All defaults in play — only label is required
+<Button label="Save" />
+
+// Overriding individual defaults
+<Button label="Delete" variant="ghost" size="sm" />
+<Button label="Sign In" type="submit" variant="primary" size="lg" />
+```
+
+<Callout type="tip">
+Destructuring defaults are visible at a glance at the top of the function signature — they serve as inline documentation. Readers don't need to scroll to a separate `defaultProps` declaration to understand the component's optional behavior.
+</Callout>
+
+## Defaults for All Prop Types
+
+### String Defaults
+
+```tsx
+function Alert({
+  title = 'Alert',
+  message = 'Something happened.',
+  severity = 'info' as 'info' | 'warning' | 'error' | 'success',
+}) {
+  return (
+    <div className={`alert alert-${severity}`}>
+      <strong>{title}</strong>
+      <p>{message}</p>
+    </div>
+  )
+}
+```
+
+### Number Defaults
+
+```tsx
+function Pagination({
+  currentPage = 1,
+  totalPages = 1,
+  siblingCount = 1,    // pages shown around current
+  boundaryCount = 1,   // pages shown at start/end
+}: PaginationProps) {
+  // ...
+}
+```
+
+### Boolean Defaults
+
+```tsx
+function Modal({
+  isOpen,
+  closeOnOverlayClick = true,
+  showCloseButton = true,
+  animateIn = true,
+  children,
+}: ModalProps) {
+  // ...
+}
+```
+
+### Function Defaults
+
+Default function props are useful for optional callbacks:
+
+```tsx
+interface ToastProps {
+  message: string
+  duration?: number
+  onDismiss?: () => void
+}
+
+function Toast({
+  message,
+  duration = 3000,
+  onDismiss = () => {},   // no-op default — safe to call unconditionally
+}: ToastProps) {
+  useEffect(() => {
+    const timer = setTimeout(onDismiss, duration)
+    return () => clearTimeout(timer)
+  }, [duration, onDismiss])
+
+  return <div className="toast">{message}</div>
+}
+```
+
+<Callout type="warning">
+**Object and array defaults must be defined outside the component or as inline defaults in destructuring.** If you write `onDismiss = new Function()` or equivalent patterns inside the render body, you create a new reference each render and break memoization. The destructuring form is stable — the default is only applied when the prop is `undefined`.
+</Callout>
+
+### Object Defaults
+
+```tsx
+interface ThemeConfig {
+  colors: { primary: string; secondary: string }
+  spacing: number
+  borderRadius: number
+}
+
+const DEFAULT_THEME: ThemeConfig = {
+  colors: { primary: '#667eea', secondary: '#764ba2' },
+  spacing: 8,
+  borderRadius: 6,
+}
+
+function ThemedCard({
+  theme = DEFAULT_THEME,
+  children,
+}: {
+  theme?: ThemeConfig
+  children: React.ReactNode
+}) {
+  return (
+    <div style={{
+      padding: theme.spacing * 2,
+      borderRadius: theme.borderRadius,
+      border: `2px solid ${theme.colors.primary}`,
+    }}>
+      {children}
+    </div>
+  )
+}
+```
+
+<Callout type="danger">
+Never use an object or array literal as an inline default in the function body — only in destructuring. `function Card({ config = { padding: 16 } })` is fine (the default is applied once per missing call, not per render). But `const config = props.config ?? { padding: 16 }` inside the render body creates a new object every render, breaking React.memo.
+</Callout>
+
+### Array Defaults
+
+```tsx
+function TagList({
+  tags = [],
+  maxVisible = 5,
+}: {
+  tags?: string[]
+  maxVisible?: number
+}) {
+  const visible = tags.slice(0, maxVisible)
+  const hidden = tags.length - maxVisible
+
+  return (
+    <div>
+      {visible.map(tag => <span key={tag} className="tag">{tag}</span>)}
+      {hidden > 0 && <span>+{hidden} more</span>}
+    </div>
+  )
+}
+```
+
+## `defaultProps` — The Legacy Way
+
+`defaultProps` is a static property that can be set on both class components and (previously) functional components. It is now **deprecated for function components** and removed from future React major versions.
+
+### Class Components (still valid)
+
+```tsx
+interface LegacyButtonProps {
+  label: string
+  variant?: string
+  size?: string
+  disabled?: boolean
+}
+
+class LegacyButton extends React.Component<LegacyButtonProps> {
+  static defaultProps: Partial<LegacyButtonProps> = {
+    variant: 'primary',
+    size: 'md',
+    disabled: false,
+  }
+
+  render() {
+    const { label, variant, size, disabled } = this.props
+    return (
+      <button disabled={disabled} className={`btn-${variant} btn-${size}`}>
+        {label}
+      </button>
+    )
+  }
+}
+```
+
+### Functional Components — Deprecated
+
+```tsx
+// ❌ Deprecated — do not write new code this way
+function Button({ label, variant, size }: ButtonProps) {
+  return <button className={`btn-${variant} btn-${size}`}>{label}</button>
+}
+
+Button.defaultProps = {
+  variant: 'primary',
+  size: 'md',
+}
+```
+
+<Callout type="warning">
+React 18.3 deprecated `defaultProps` on function components and it will be removed in React 19. The React team recommends migrating all function component `defaultProps` to destructuring defaults. The ESLint rule `react/require-default-props` should now be configured to enforce the `defaultArguments` option instead of `defaultProps`.
+</Callout>
+
+## Why `defaultProps` Is Deprecated for Function Components
+
+<ComparisonTable
+  columns={["Aspect", "defaultProps (deprecated)", "Destructuring defaults (recommended)"]}
+  rows={[
+    ["Location", "Separate declaration below component", "Inline in function signature"],
+    ["Discoverability", "Must scroll/search for declaration", "Immediately visible in signature"],
+    ["TypeScript", "Requires extra generics or workarounds", "Works naturally with interface/type"],
+    ["Bundle overhead", "Adds a runtime object React must merge", "Pure JavaScript — zero overhead"],
+    ["React version", "Deprecated in 18.3, removed in 19", "Current and future standard"],
+    ["Tooling support", "ESLint rules warn against it", "Fully supported"],
+    ["Tree shaking", "May hinder some optimizers", "No impact"],
+  ]}
+/>
+
+## TypeScript and Optional Props
+
+Mark optional props with `?` in the interface. TypeScript will enforce that the prop is either passed or has a default.
+
+```tsx
+interface CardProps {
+  title: string                  // required — must be passed
+  subtitle?: string              // optional — string | undefined
+  imageUrl?: string              // optional
+  aspectRatio?: number           // optional
+  children: React.ReactNode      // required (children always explicit)
+}
+
+function Card({
+  title,
+  subtitle,              // no default — could be undefined
+  imageUrl,              // no default — could be undefined
+  aspectRatio = 16 / 9,  // default number
+  children,
+}: CardProps) {
+  return (
+    <div className="card">
+      {imageUrl && (
+        <div style={{ paddingBottom: `${(1 / aspectRatio) * 100}%` }}>
+          <img src={imageUrl} alt={title} />
+        </div>
+      )}
+      <div className="card-body">
+        <h3>{title}</h3>
+        {subtitle && <p className="subtitle">{subtitle}</p>}
+        {children}
+      </div>
+    </div>
+  )
+}
+```
+
+## Complete Button Component with All Defaults
+
+Here is a production-ready Button that demonstrates all the default prop patterns together:
+
+```tsx
+import React from 'react'
+
+type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'link'
+type ButtonSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl'
+
+interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  label?: string                        // optional — can use children instead
+  variant?: ButtonVariant
+  size?: ButtonSize
+  loading?: boolean
+  leftIcon?: React.ReactNode
+  rightIcon?: React.ReactNode
+  fullWidth?: boolean
+}
+
+const SIZE_CLASSES: Record<ButtonSize, string> = {
+  xs: 'px-2 py-1 text-xs',
+  sm: 'px-3 py-1.5 text-sm',
+  md: 'px-4 py-2 text-sm',
+  lg: 'px-5 py-2.5 text-base',
+  xl: 'px-6 py-3 text-lg',
+}
+
+const VARIANT_CLASSES: Record<ButtonVariant, string> = {
+  primary:   'bg-blue-600 text-white hover:bg-blue-700',
+  secondary: 'bg-gray-100 text-gray-800 hover:bg-gray-200',
+  ghost:     'bg-transparent text-gray-700 hover:bg-gray-100',
+  danger:    'bg-red-600 text-white hover:bg-red-700',
+  link:      'bg-transparent text-blue-600 hover:underline p-0',
+}
+
+export function Button({
+  label,
+  children,
+  variant = 'primary',
+  size = 'md',
+  loading = false,
+  fullWidth = false,
+  leftIcon,
+  rightIcon,
+  disabled,
+  className,
+  type = 'button',
+  ...rest
+}: ButtonProps) {
+  const isDisabled = disabled || loading
+
+  return (
+    <button
+      type={type}
+      disabled={isDisabled}
+      className={[
+        'btn inline-flex items-center justify-center gap-2 rounded-md font-medium transition-colors',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500',
+        'disabled:opacity-50 disabled:cursor-not-allowed',
+        SIZE_CLASSES[size],
+        VARIANT_CLASSES[variant],
+        fullWidth ? 'w-full' : '',
+        className ?? '',
+      ].filter(Boolean).join(' ')}
+      {...rest}
+    >
+      {loading && <Spinner size={size} />}
+      {!loading && leftIcon && <span>{leftIcon}</span>}
+      {label ?? children}
+      {!loading && rightIcon && <span>{rightIcon}</span>}
+    </button>
+  )
+}
+```
+
+<LiveEditor code={`import { useState } from 'react'
+
+function Button({
+  children,
+  variant = 'primary',
+  size = 'md',
+  disabled = false,
+  loading = false,
+  onClick = () => {},
+}) {
+  const styles = {
+    primary:   { background: '#4f46e5', color: 'white' },
+    secondary: { background: '#e5e7eb', color: '#1f2937' },
+    danger:    { background: '#dc2626', color: 'white' },
+    ghost:     { background: 'transparent', color: '#4f46e5', border: '1px solid #4f46e5' },
+  }
+
+  const sizes = {
+    sm: { padding: '6px 12px', fontSize: 12 },
+    md: { padding: '8px 18px', fontSize: 14 },
+    lg: { padding: '12px 24px', fontSize: 16 },
+  }
+
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled || loading}
+      style={{
+        ...styles[variant],
+        ...sizes[size],
+        borderRadius: 8,
+        border: 'none',
+        cursor: disabled || loading ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.5 : 1,
+        fontWeight: 600,
+        transition: 'opacity 0.15s',
+        ...( variant === 'ghost' ? styles.ghost : {}),
+      }}
+    >
+      {loading ? 'Loading...' : children}
+    </button>
+  )
+}
+
+export default function App() {
+  const [loading, setLoading] = useState(false)
+
+  const handleSave = () => {
+    setLoading(true)
+    setTimeout(() => setLoading(false), 2000)
+  }
+
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, padding: 24, fontFamily: 'sans-serif' }}>
+      <Button>Primary (defaults)</Button>
+      <Button variant="secondary">Secondary</Button>
+      <Button variant="danger" size="sm">Delete (sm)</Button>
+      <Button variant="ghost" size="lg">Ghost (lg)</Button>
+      <Button disabled>Disabled</Button>
+      <Button loading={loading} onClick={handleSave}>
+        {loading ? 'Saving...' : 'Save Changes'}
+      </Button>
+    </div>
+  )
+}`} />
+
+<InterviewQA questions={[
+  {
+    question: "What is the recommended way to provide default prop values in modern React, and why?",
+    answer: "The recommended way is destructuring defaults in the function signature: `function Button({ variant = 'primary', size = 'md' } : ButtonProps)`. This is preferred because: it collocates defaults with the parameter definition (easy to read), it's plain JavaScript (no React-specific API), it works perfectly with TypeScript, it has zero runtime overhead (unlike defaultProps which React had to merge at runtime), and it is future-proof since defaultProps for function components is deprecated in React 18.3 and removed in React 19.",
+    level: "beginner"
+  },
+  {
+    question: "Why is defaultProps deprecated for function components?",
+    answer: "The React team deprecated defaultProps for function components because: (1) ES default parameters (destructuring defaults) do exactly the same thing with no extra API; (2) defaultProps required React to intercept and merge props at runtime, adding overhead; (3) with TypeScript, defaultProps required complex type gymnastics to correctly infer non-optional types; (4) it separated the defaults from the parameter declaration, making the function signature harder to read. defaultProps remains valid for class components where there is no equivalent syntax.",
+    level: "intermediate"
+  },
+  {
+    question: "What is the pitfall with using object or array literals as default props in the function body?",
+    answer: "If you write `const config = props.config ?? { padding: 16 }` inside the function body, a new object is created every time the component renders (when config is undefined). This breaks React.memo because the new object reference is never equal to the previous one. Destructuring defaults (`{ config = { padding: 16 } }`) are also technically new objects each time the prop is absent — but this only matters if you pass `config` to a memoized child. The safe patterns are: define the default constant at module scope (`const DEFAULT_CONFIG = { padding: 16 }`) and use that as the default, or ensure the parent always passes a stable reference.",
+    level: "intermediate"
+  }
+]} />

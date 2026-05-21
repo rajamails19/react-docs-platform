@@ -1,0 +1,661 @@
+---
+title: Nested Routes in React Router v6
+description: Master nested routes, the Outlet component, layout routes, index routes, and relative links to build complex dashboard UIs with shared navigation.
+category: Routing
+order: 2
+slug: routing/nested-routes
+difficulty: intermediate
+estimatedTime: 20
+tags: [react router, nested routes, outlet, layout routes, index routes, dashboard, navigation]
+lastUpdated: "2024-01-15"
+---
+
+# Nested Routes in React Router v6
+
+Real applications are rarely flat. A dashboard has a sidebar. A settings page has tabs. A profile section has sub-pages. React Router's nested route system lets you map this natural hierarchy directly into your URL structure and component tree.
+
+<Callout type="info">
+Nested routes were fundamentally redesigned in React Router v6. If you're coming from v5, the `<Switch>` and manually nested `<Route>` patterns no longer apply. Everything now uses the `<Routes>` tree and the `<Outlet>` component.
+</Callout>
+
+## What Are Nested Routes?
+
+A nested route is a route that lives _inside_ another route in both the URL and the component hierarchy. When you visit `/dashboard/settings`, the router renders both the `Dashboard` layout component **and** the `Settings` component at the same time — the parent wraps the child.
+
+This solves two real problems:
+
+1. **Shared UI** — The sidebar, header, and navigation that appear on every dashboard page only need to be defined once in the parent layout.
+2. **URL hierarchy** — The URL structure mirrors your UI structure, making the app predictable and bookmarkable.
+
+## The `Outlet` Component
+
+`<Outlet>` is the single most important concept for nested routes. It acts as a **placeholder** inside a parent route component where the matched child route's component will be rendered.
+
+```tsx
+// layouts/DashboardLayout.tsx
+import { Outlet, NavLink } from 'react-router-dom'
+
+export function DashboardLayout() {
+  return (
+    <div className="dashboard">
+      <aside className="sidebar">
+        <nav>
+          <NavLink to="/dashboard" end>Overview</NavLink>
+          <NavLink to="/dashboard/analytics">Analytics</NavLink>
+          <NavLink to="/dashboard/settings">Settings</NavLink>
+          <NavLink to="/dashboard/profile">Profile</NavLink>
+        </nav>
+      </aside>
+      <main className="content">
+        {/* Child route renders HERE */}
+        <Outlet />
+      </main>
+    </div>
+  )
+}
+```
+
+Without `<Outlet>`, the parent component renders but the child route's component never appears. This is the most common beginner mistake.
+
+<Callout type="warning">
+If you define child routes but see only the parent and nothing else, you almost certainly forgot to render `<Outlet />` in the parent component.
+</Callout>
+
+## Defining Nested Routes in JSX
+
+Nesting routes in JSX is done by placing `<Route>` elements **inside** other `<Route>` elements. The parent's `path` becomes the prefix for all child paths.
+
+```tsx
+// App.tsx
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { DashboardLayout } from './layouts/DashboardLayout'
+import { Overview } from './pages/dashboard/Overview'
+import { Analytics } from './pages/dashboard/Analytics'
+import { Settings } from './pages/dashboard/Settings'
+import { Profile } from './pages/dashboard/Profile'
+import { Home } from './pages/Home'
+import { NotFound } from './pages/NotFound'
+
+function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<Home />} />
+
+        {/* Parent layout route */}
+        <Route path="/dashboard" element={<DashboardLayout />}>
+          {/* Index route — rendered at /dashboard */}
+          <Route index element={<Overview />} />
+          {/* Child routes — paths are relative to /dashboard */}
+          <Route path="analytics" element={<Analytics />} />
+          <Route path="settings" element={<Settings />} />
+          <Route path="profile" element={<Profile />} />
+        </Route>
+
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </BrowserRouter>
+  )
+}
+```
+
+Notice that child route paths (`"analytics"`, `"settings"`) are written **without** a leading slash. React Router automatically prepends the parent's path (`/dashboard`), resulting in `/dashboard/analytics`, `/dashboard/settings`, etc.
+
+<Callout type="tip">
+Child route paths should never start with `/`. A leading slash makes the path absolute, which will break the nesting and cause the route to be treated as a top-level route.
+</Callout>
+
+## Route Tree Visualization
+
+<MermaidDiagram chart={`
+graph TD
+    A["/ (Home)"] 
+    B["/dashboard (DashboardLayout)"]
+    C["/dashboard (index) → Overview"]
+    D["/dashboard/analytics → Analytics"]
+    E["/dashboard/settings → Settings"]
+    F["/dashboard/profile → Profile"]
+    G["/* (NotFound)"]
+
+    A --> |"exact match"| A
+    B --> C
+    B --> D
+    B --> E
+    B --> F
+    G --> |"catch-all"| G
+
+    style B fill:#4f46e5,color:#fff
+    style C fill:#7c3aed,color:#fff
+    style D fill:#7c3aed,color:#fff
+    style E fill:#7c3aed,color:#fff
+    style F fill:#7c3aed,color:#fff
+`} />
+
+## Layout Routes (Parent with Shared UI)
+
+A **layout route** is a parent route that exists purely to provide shared UI (header, sidebar, footer). It wraps all child routes. The parent route's `element` renders the shared structure, and `<Outlet>` is where child components slot in.
+
+Layout routes can be _pathless_ — they share UI without adding a URL segment:
+
+```tsx
+// A pathless layout route — no path prop
+<Route element={<AuthenticatedLayout />}>
+  <Route path="/dashboard" element={<Dashboard />} />
+  <Route path="/profile" element={<Profile />} />
+  <Route path="/settings" element={<Settings />} />
+</Route>
+```
+
+```tsx
+// layouts/AuthenticatedLayout.tsx
+import { Outlet, Navigate } from 'react-router-dom'
+import { useAuth } from '../hooks/useAuth'
+import { AppHeader } from '../components/AppHeader'
+import { AppFooter } from '../components/AppFooter'
+
+export function AuthenticatedLayout() {
+  const { user } = useAuth()
+
+  if (!user) {
+    return <Navigate to="/login" replace />
+  }
+
+  return (
+    <>
+      <AppHeader user={user} />
+      <main>
+        <Outlet />
+      </main>
+      <AppFooter />
+    </>
+  )
+}
+```
+
+This pattern lets you apply authentication checks, shared headers, or analytics tracking to entire sections of your app without repeating logic in every page component.
+
+## Index Routes
+
+An index route is the **default child** rendered when the parent's URL matches exactly and no other child route matches. You declare it with the `index` prop (no `path` needed).
+
+```tsx
+<Route path="/dashboard" element={<DashboardLayout />}>
+  {/* Rendered at exactly /dashboard */}
+  <Route index element={<Overview />} />
+  <Route path="analytics" element={<Analytics />} />
+</Route>
+```
+
+Without an index route, visiting `/dashboard` would render the layout's `<Outlet>` as empty — you'd see the sidebar but no content in the main area.
+
+<Callout type="tip">
+Every layout route that has child routes should also have an `index` route to handle the exact parent URL. Think of it as the "home page" for that section.
+</Callout>
+
+### Index Route vs. Empty Path
+
+These look similar but behave differently:
+
+```tsx
+// Index route — only matches /dashboard exactly
+<Route index element={<Overview />} />
+
+// Empty string path — matches /dashboard/ (with trailing slash) too
+<Route path="" element={<Overview />} />
+```
+
+Use `index` — it's the idiomatic React Router v6 approach.
+
+## Relative Links Inside Nested Routes
+
+Inside a nested route context, `<Link>` and `<NavLink>` paths can be **relative**. A relative path is resolved against the current route's location, similar to how relative file paths work.
+
+```tsx
+// pages/dashboard/Settings.tsx
+// Currently at /dashboard/settings
+import { Link } from 'react-router-dom'
+
+export function Settings() {
+  return (
+    <div>
+      <h1>Settings</h1>
+      {/* Absolute link — always works, always explicit */}
+      <Link to="/dashboard/profile">Go to Profile</Link>
+
+      {/* Relative link — resolves to /dashboard/profile */}
+      <Link to="../profile">Go to Profile</Link>
+
+      {/* Relative link — resolves to /dashboard/settings/notifications */}
+      <Link to="notifications">Notifications</Link>
+    </div>
+  )
+}
+```
+
+The `..` syntax moves up one route segment. This is useful for keeping components portable — if you rename the parent path, relative links inside still work.
+
+<Callout type="info">
+Relative links in React Router v6 are route-relative, not URL-segment-relative. `..` goes up one **route** level, which may not always correspond to one URL segment if the route has a multi-segment path.
+</Callout>
+
+## `NavLink` with Active Styles in Nested Context
+
+`NavLink` automatically applies an `active` class when the current URL matches its `to` prop. In nested contexts, use the `end` prop to prevent a parent link from staying active when a child route is active.
+
+```tsx
+// layouts/DashboardLayout.tsx
+import { NavLink } from 'react-router-dom'
+
+export function DashboardLayout() {
+  const navLinkClass = ({ isActive }: { isActive: boolean }) =>
+    `nav-link ${isActive ? 'nav-link--active' : ''}`
+
+  return (
+    <aside className="sidebar">
+      <nav>
+        {/*
+          The `end` prop means this only matches /dashboard exactly.
+          Without `end`, it would be active on ALL /dashboard/* routes.
+        */}
+        <NavLink to="/dashboard" className={navLinkClass} end>
+          Overview
+        </NavLink>
+        <NavLink to="/dashboard/analytics" className={navLinkClass}>
+          Analytics
+        </NavLink>
+        <NavLink to="/dashboard/settings" className={navLinkClass}>
+          Settings
+        </NavLink>
+        <NavLink to="/dashboard/profile" className={navLinkClass}>
+          Profile
+        </NavLink>
+      </nav>
+      <main>
+        <Outlet />
+      </main>
+    </aside>
+  )
+}
+```
+
+```css
+/* styles/sidebar.css */
+.nav-link {
+  display: block;
+  padding: 0.75rem 1rem;
+  color: #6b7280;
+  text-decoration: none;
+  border-radius: 0.375rem;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.nav-link:hover {
+  background-color: #f3f4f6;
+  color: #111827;
+}
+
+.nav-link--active {
+  background-color: #ede9fe;
+  color: #4f46e5;
+  font-weight: 600;
+}
+```
+
+## Complete Dashboard Example
+
+Let's build a complete, realistic dashboard with nested routes. This covers the full file structure.
+
+### File Structure
+
+```
+src/
+├── App.tsx
+├── layouts/
+│   └── DashboardLayout.tsx
+└── pages/
+    ├── Home.tsx
+    └── dashboard/
+        ├── Overview.tsx
+        ├── Analytics.tsx
+        ├── Settings.tsx
+        │   ├── SettingsLayout.tsx    ← nested within Settings
+        │   ├── GeneralSettings.tsx
+        │   └── SecuritySettings.tsx
+        └── Profile.tsx
+```
+
+### App.tsx — Full Route Tree
+
+```tsx
+// App.tsx
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { DashboardLayout } from './layouts/DashboardLayout'
+import { SettingsLayout } from './pages/dashboard/SettingsLayout'
+import { Home } from './pages/Home'
+import { Overview } from './pages/dashboard/Overview'
+import { Analytics } from './pages/dashboard/Analytics'
+import { GeneralSettings } from './pages/dashboard/GeneralSettings'
+import { SecuritySettings } from './pages/dashboard/SecuritySettings'
+import { Profile } from './pages/dashboard/Profile'
+
+function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<Home />} />
+
+        <Route path="/dashboard" element={<DashboardLayout />}>
+          <Route index element={<Overview />} />
+          <Route path="analytics" element={<Analytics />} />
+
+          {/* Two levels of nesting: /dashboard/settings/general */}
+          <Route path="settings" element={<SettingsLayout />}>
+            <Route index element={<GeneralSettings />} />
+            <Route path="security" element={<SecuritySettings />} />
+          </Route>
+
+          <Route path="profile" element={<Profile />} />
+        </Route>
+
+        <Route path="*" element={<div>Page not found</div>} />
+      </Routes>
+    </BrowserRouter>
+  )
+}
+
+export default App
+```
+
+### DashboardLayout.tsx
+
+```tsx
+// layouts/DashboardLayout.tsx
+import { Outlet, NavLink } from 'react-router-dom'
+import type { FC } from 'react'
+
+const navLinks = [
+  { to: '/dashboard', label: 'Overview', end: true },
+  { to: '/dashboard/analytics', label: 'Analytics', end: false },
+  { to: '/dashboard/settings', label: 'Settings', end: false },
+  { to: '/dashboard/profile', label: 'Profile', end: false },
+]
+
+export const DashboardLayout: FC = () => {
+  return (
+    <div style={{ display: 'flex', minHeight: '100vh' }}>
+      <aside style={{ width: 240, borderRight: '1px solid #e5e7eb', padding: '1rem' }}>
+        <h2 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '1rem' }}>
+          My Dashboard
+        </h2>
+        <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+          {navLinks.map(({ to, label, end }) => (
+            <NavLink
+              key={to}
+              to={to}
+              end={end}
+              style={({ isActive }) => ({
+                padding: '0.5rem 0.75rem',
+                borderRadius: '0.375rem',
+                textDecoration: 'none',
+                fontWeight: isActive ? 600 : 400,
+                backgroundColor: isActive ? '#ede9fe' : 'transparent',
+                color: isActive ? '#4f46e5' : '#374151',
+              })}
+            >
+              {label}
+            </NavLink>
+          ))}
+        </nav>
+      </aside>
+      <main style={{ flex: 1, padding: '2rem' }}>
+        <Outlet />
+      </main>
+    </div>
+  )
+}
+```
+
+### SettingsLayout.tsx — Nested Layout
+
+```tsx
+// pages/dashboard/SettingsLayout.tsx
+import { Outlet, NavLink } from 'react-router-dom'
+import type { FC } from 'react'
+
+export const SettingsLayout: FC = () => {
+  const tabStyle = (isActive: boolean) => ({
+    padding: '0.5rem 1rem',
+    borderBottom: isActive ? '2px solid #4f46e5' : '2px solid transparent',
+    textDecoration: 'none',
+    color: isActive ? '#4f46e5' : '#6b7280',
+    fontWeight: isActive ? 600 : 400,
+  })
+
+  return (
+    <div>
+      <h1>Settings</h1>
+      <nav style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid #e5e7eb', marginBottom: '1.5rem' }}>
+        <NavLink to="/dashboard/settings" end style={({ isActive }) => tabStyle(isActive)}>
+          General
+        </NavLink>
+        <NavLink to="/dashboard/settings/security" style={({ isActive }) => tabStyle(isActive)}>
+          Security
+        </NavLink>
+      </nav>
+      {/* Renders GeneralSettings or SecuritySettings */}
+      <Outlet />
+    </div>
+  )
+}
+```
+
+### Overview.tsx — Index Route Content
+
+```tsx
+// pages/dashboard/Overview.tsx
+import type { FC } from 'react'
+
+interface StatCardProps {
+  label: string
+  value: string
+  change: string
+}
+
+const StatCard: FC<StatCardProps> = ({ label, value, change }) => (
+  <div style={{ border: '1px solid #e5e7eb', borderRadius: '0.5rem', padding: '1.25rem' }}>
+    <p style={{ color: '#6b7280', fontSize: '0.875rem', margin: 0 }}>{label}</p>
+    <p style={{ fontSize: '1.875rem', fontWeight: 700, margin: '0.25rem 0' }}>{value}</p>
+    <p style={{ color: '#10b981', fontSize: '0.875rem', margin: 0 }}>{change}</p>
+  </div>
+)
+
+export const Overview: FC = () => {
+  return (
+    <div>
+      <h1>Overview</h1>
+      <p>Welcome back! Here's what's happening with your account today.</p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginTop: '1.5rem' }}>
+        <StatCard label="Total Users" value="12,431" change="+12% from last month" />
+        <StatCard label="Revenue" value="$48,295" change="+8.2% from last month" />
+        <StatCard label="Active Sessions" value="1,204" change="+3.1% from last hour" />
+      </div>
+    </div>
+  )
+}
+```
+
+<LiveEditor code={`import { BrowserRouter, Routes, Route, Outlet, NavLink } from 'react-router-dom'
+
+function DashboardLayout() {
+  return (
+    <div style={{ display: 'flex', gap: '2rem' }}>
+      <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', minWidth: 140 }}>
+        <NavLink to="/dashboard" end style={({ isActive }) => ({ color: isActive ? '#4f46e5' : '#374151', fontWeight: isActive ? 700 : 400 })}>Overview</NavLink>
+        <NavLink to="/dashboard/analytics" style={({ isActive }) => ({ color: isActive ? '#4f46e5' : '#374151', fontWeight: isActive ? 700 : 400 })}>Analytics</NavLink>
+        <NavLink to="/dashboard/settings" style={({ isActive }) => ({ color: isActive ? '#4f46e5' : '#374151', fontWeight: isActive ? 700 : 400 })}>Settings</NavLink>
+      </nav>
+      <main><Outlet /></main>
+    </div>
+  )
+}
+
+function Overview() { return <h2>📊 Overview Page</h2> }
+function Analytics() { return <h2>📈 Analytics Page</h2> }
+function Settings() { return <h2>⚙️ Settings Page</h2> }
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/dashboard" element={<DashboardLayout />}>
+          <Route index element={<Overview />} />
+          <Route path="analytics" element={<Analytics />} />
+          <Route path="settings" element={<Settings />} />
+        </Route>
+        <Route path="*" element={<a href="/dashboard">Go to Dashboard</a>} />
+      </Routes>
+    </BrowserRouter>
+  )
+}`} />
+
+## URL Structure Reference
+
+<ComparisonTable
+  columns={["URL", "Rendered Components", "Notes"]}
+  rows={[
+    ["/dashboard", "DashboardLayout + Overview", "Index route — default child"],
+    ["/dashboard/analytics", "DashboardLayout + Analytics", "Child route"],
+    ["/dashboard/settings", "DashboardLayout + SettingsLayout + GeneralSettings", "Two-level nesting, index"],
+    ["/dashboard/settings/security", "DashboardLayout + SettingsLayout + SecuritySettings", "Three-level nesting"],
+    ["/dashboard/profile", "DashboardLayout + Profile", "Child route"],
+    ["/", "Home", "Top-level route, no layout"],
+  ]}
+/>
+
+## Passing Data Through `Outlet` Context
+
+Sometimes a parent route needs to pass data down to child routes without prop drilling. `<Outlet>` accepts a `context` prop that child routes can read with `useOutletContext`.
+
+```tsx
+// layouts/DashboardLayout.tsx
+import { Outlet } from 'react-router-dom'
+
+interface DashboardContextType {
+  user: { id: string; name: string; role: string }
+  refreshUser: () => void
+}
+
+export function DashboardLayout() {
+  const [user, setUser] = useState({ id: '1', name: 'Alice', role: 'admin' })
+
+  const refreshUser = async () => {
+    const fresh = await fetchUser(user.id)
+    setUser(fresh)
+  }
+
+  return (
+    <div className="dashboard">
+      <Sidebar />
+      <main>
+        {/* Pass context to all child routes */}
+        <Outlet context={{ user, refreshUser } satisfies DashboardContextType} />
+      </main>
+    </div>
+  )
+}
+```
+
+```tsx
+// pages/dashboard/Profile.tsx
+import { useOutletContext } from 'react-router-dom'
+
+interface DashboardContextType {
+  user: { id: string; name: string; role: string }
+  refreshUser: () => void
+}
+
+export function Profile() {
+  const { user, refreshUser } = useOutletContext<DashboardContextType>()
+
+  return (
+    <div>
+      <h1>{user.name}'s Profile</h1>
+      <p>Role: {user.role}</p>
+      <button onClick={refreshUser}>Refresh</button>
+    </div>
+  )
+}
+```
+
+<Callout type="tip">
+`useOutletContext` is great for data that is scoped to a layout section — like the logged-in user on authenticated pages — without reaching for global state management.
+</Callout>
+
+## Common Mistakes
+
+<ComparisonTable
+  columns={["Mistake", "Problem", "Fix"]}
+  rows={[
+    ["Forgetting <Outlet />", "Parent renders but child is invisible", "Add <Outlet /> where child content should appear"],
+    ["Using absolute paths on child routes", "Route breaks nesting — path='/analytics' instead of 'analytics'", "Remove the leading slash from child route paths"],
+    ["No index route", "Parent URL shows empty Outlet area", "Add <Route index element={<DefaultChild />} />"],
+    ["Missing `end` on parent NavLink", "Parent nav item stays active for all child routes", "Add end prop to NavLink for parent/index routes"],
+    ["Wrong relative link resolution", "Expecting URL behavior but getting route behavior for ..", "Use absolute paths when unsure; test each link explicitly"],
+    ["Nesting in wrong place", "Routes defined outside <Routes> block", "All <Route> elements must be inside a <Routes> element"],
+  ]}
+/>
+
+## `useParams` in Nested Routes
+
+Dynamic segments work at any level of nesting. Params accumulate from all matched routes.
+
+```tsx
+// Route definition
+<Route path="/users/:userId" element={<UserLayout />}>
+  <Route index element={<UserProfile />} />
+  <Route path="posts/:postId" element={<UserPost />} />
+</Route>
+
+// pages/UserPost.tsx
+import { useParams } from 'react-router-dom'
+
+export function UserPost() {
+  // Both params are available even though :userId comes from the parent route
+  const { userId, postId } = useParams<{ userId: string; postId: string }>()
+
+  return <h1>Post {postId} by User {userId}</h1>
+}
+```
+
+<InterviewQA questions={[
+  {
+    question: "What is the purpose of the <Outlet> component in React Router v6?",
+    answer: "<Outlet> is a placeholder component rendered inside a parent route's element. It marks the location where the matched child route's component will be rendered. Without <Outlet>, child routes are matched by the router but their components are never inserted into the DOM. Every parent route that has children must render <Outlet> somewhere in its JSX.",
+    level: "junior"
+  },
+  {
+    question: "What is an index route and when would you use one?",
+    answer: "An index route is a child route declared with the `index` prop instead of a `path` prop. It renders at the exact parent URL when no other child route matches. For example, if you have a /dashboard parent with child routes for /dashboard/analytics and /dashboard/settings, the index route renders at /dashboard itself. Without an index route, visiting the parent URL leaves the <Outlet> empty. You use index routes as the 'default' or 'home' page within a layout section.",
+    level: "junior"
+  },
+  {
+    question: "How do relative links work in React Router v6, and how does the `end` prop on NavLink affect behavior?",
+    answer: "Relative links in React Router v6 are resolved against the current route's path, not the URL. A link with `to='../profile'` moves up one route segment in the route hierarchy. The `end` prop on NavLink controls when the link is considered 'active'. Without `end`, a NavLink to `/dashboard` would be active on every `/dashboard/*` route because the URL starts with `/dashboard`. With `end`, it only matches exactly `/dashboard`. This is essential for sidebar navigation where parent links must not stay highlighted when a child route is active.",
+    level: "intermediate"
+  },
+  {
+    question: "Explain the difference between a pathless layout route and a regular nested route. When would you choose each?",
+    answer: "A regular nested route has a `path` prop that adds a URL segment: `<Route path='/dashboard' element={<Layout />}>` makes all children live under `/dashboard/*`. A pathless layout route has no `path` prop: `<Route element={<Layout />}>` — it groups child routes under a shared layout without adding any URL segment. Choose a regular nested route when the parent path is meaningful in the URL (e.g., a /dashboard section). Choose a pathless layout route when you want to apply a shared wrapper (auth check, header/footer, analytics) to multiple top-level routes without grouping them under a common URL prefix.",
+    level: "advanced"
+  }
+]} />
+
+## Summary
+
+- **Nested routes** map URL hierarchy to component hierarchy, enabling shared layouts across multiple pages.
+- **`<Outlet>`** is the insertion point for child route components inside a parent — always required.
+- **Layout routes** wrap child routes in shared UI. They can have a path (adding a URL segment) or be pathless (grouping without a URL segment).
+- **Index routes** (`<Route index>`) render at the exact parent URL as the default child.
+- **Child route paths** are relative — never use a leading `/` on them.
+- **`NavLink` with `end`** prevents parent links from staying active on child route URLs.
+- **`useOutletContext`** lets parent layouts pass data to child routes without prop drilling.

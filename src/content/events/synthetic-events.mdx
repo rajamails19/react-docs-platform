@@ -1,0 +1,225 @@
+---
+title: Synthetic Events
+description: How React's SyntheticEvent system normalizes browser differences and what you need to know about event pooling.
+category: Events
+order: 2
+slug: events/synthetic-events
+difficulty: intermediate
+estimatedTime: 8
+tags: [events, synthetic, SyntheticEvent, stopPropagation, preventDefault, TypeScript]
+lastUpdated: 2024-01-15
+---
+
+# Synthetic Events
+
+React wraps native browser events in `SyntheticEvent` objects that normalize behavior across browsers. The API mirrors the native DOM Event API but works identically in every browser.
+
+## What Is a SyntheticEvent?
+
+```tsx
+function Form() {
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()          // same as native DOM event
+    e.stopPropagation()         // same as native DOM event
+    console.log(e.target)       // the form element
+    console.log(e.nativeEvent)  // the underlying browser event
+  }
+
+  return <form onSubmit={handleSubmit}>...</form>
+}
+```
+
+React's event system uses a single event listener at the root (`document`) instead of attaching listeners to individual DOM nodes. This is more memory efficient and avoids memory leaks.
+
+## Typed Event Handlers
+
+TypeScript gives you specific event types for each element:
+
+```tsx
+function AllEvents() {
+  // Mouse events
+  const handleClick    = (e: React.MouseEvent<HTMLButtonElement>) => {}
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {}
+
+  // Keyboard events
+  const handleKeyDown  = (e: React.KeyboardEvent<HTMLInputElement>) => {}
+
+  // Form events
+  const handleSubmit   = (e: React.FormEvent<HTMLFormElement>) => {}
+  const handleChange   = (e: React.ChangeEvent<HTMLInputElement>) => {}
+  const handleSelect   = (e: React.ChangeEvent<HTMLSelectElement>) => {}
+
+  // Focus events
+  const handleFocus    = (e: React.FocusEvent<HTMLInputElement>) => {}
+  const handleBlur     = (e: React.FocusEvent<HTMLInputElement>) => {}
+
+  // Drag events
+  const handleDrop     = (e: React.DragEvent<HTMLDivElement>) => {}
+
+  // Clipboard events
+  const handlePaste    = (e: React.ClipboardEvent<HTMLInputElement>) => {}
+}
+```
+
+## Reading Event Data
+
+```tsx
+function SearchInput() {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value       // current input value
+    const name  = e.target.name        // input name attribute
+    console.log(value, name)
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      console.log('Search submitted')
+    }
+    if (e.key === 'Escape') {
+      e.currentTarget.blur()
+    }
+    // Modifier keys
+    if (e.ctrlKey && e.key === 'a') {
+      console.log('Select all')
+    }
+  }
+
+  return (
+    <input
+      name="search"
+      onChange={handleChange}
+      onKeyDown={handleKeyDown}
+    />
+  )
+}
+```
+
+## stopPropagation vs preventDefault
+
+```tsx
+function EventControl() {
+  const handleButtonClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+    // Stops event from bubbling up to parent elements
+    e.stopPropagation()
+    console.log('Button clicked — parent div will NOT hear this')
+  }
+
+  const handleFormSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    // Prevents default browser behavior (page reload on form submit)
+    e.preventDefault()
+    // Handle submission in JavaScript instead
+    submitData()
+  }
+
+  const handleLinkClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    // Prevents navigation
+    e.preventDefault()
+    // Do something custom instead
+    showModal()
+  }
+
+  return (
+    <div onClick={() => console.log('div clicked')}>
+      <button onClick={handleButtonClick}>Click me</button>
+    </div>
+  )
+}
+```
+
+## Interactive Example — Event Propagation
+
+Click the buttons to see `stopPropagation` and `preventDefault` in action:
+
+<LiveEditor code={`import { useState } from 'react'
+
+export default function EventDemo() {
+  const [log, setLog] = useState<string[]>([])
+  const [submitted, setSubmitted] = useState(false)
+
+  const addLog = (msg: string) => setLog(prev => [\`\${new Date().toLocaleTimeString('en', { hour12: false, hour: '2-digit', minute:'2-digit', second:'2-digit' })} \${msg}\`, ...prev].slice(0, 8))
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: 20, maxWidth: 520 }}>
+
+      {/* Bubbling demo */}
+      <section style={{ marginBottom: 20 }}>
+        <h4 style={{ margin: '0 0 10px', fontSize: 14, fontWeight: 700 }}>Event bubbling & stopPropagation</h4>
+        <div
+          onClick={() => addLog('🟦 Outer div clicked')}
+          style={{ padding: 16, background: '#eff6ff', border: '2px solid #bfdbfe', borderRadius: 10, cursor: 'pointer' }}
+        >
+          <span style={{ fontSize: 13, color: '#3b82f6' }}>Click anywhere in this box (bubbles up)</span>
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            <button
+              onClick={e => { addLog('🟢 Button — bubbles to parent') }}
+              style={{ padding: '6px 12px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}
+            >
+              Bubble up
+            </button>
+            <button
+              onClick={e => { e.stopPropagation(); addLog('🔴 Button — stopped (parent NOT notified)') }}
+              style={{ padding: '6px 12px', background: '#ef4444', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}
+            >
+              stopPropagation
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* preventDefault demo */}
+      <section style={{ marginBottom: 20 }}>
+        <h4 style={{ margin: '0 0 10px', fontSize: 14, fontWeight: 700 }}>preventDefault on form submit</h4>
+        <form
+          onSubmit={e => { e.preventDefault(); setSubmitted(true); addLog('✅ Form handled in JS (no page reload)') }}
+          style={{ display: 'flex', gap: 8 }}
+        >
+          <input placeholder="Your name" style={{ flex: 1, padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 13 }} />
+          <button type="submit" style={{ padding: '8px 14px', background: '#22c55e', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>
+            Submit
+          </button>
+        </form>
+        {submitted && <p style={{ marginTop: 8, fontSize: 13, color: '#22c55e' }}>✓ Submitted without page reload!</p>}
+      </section>
+
+      {/* Event log */}
+      <div style={{ background: '#111827', borderRadius: 8, padding: 12, minHeight: 80 }}>
+        <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 6, fontFamily: 'monospace' }}>Event log</div>
+        {log.length === 0 && <div style={{ fontSize: 12, color: '#4b5563', fontFamily: 'monospace' }}>Click something above…</div>}
+        {log.map((entry, i) => (
+          <div key={i} style={{ fontSize: 12, color: '#d1fae5', fontFamily: 'monospace', lineHeight: 1.8 }}>{entry}</div>
+        ))}
+      </div>
+    </div>
+  )
+}`} />
+
+<Challenge title="Capture vs Bubble phase">
+By default, React events use the **bubble** phase (innermost → outermost). Add `onClickCapture` to the outer div (outermost → innermost) and observe the log order change.
+
+```tsx
+<div
+  onClick={() => addLog('Bubble: outer')}
+  onClickCapture={() => addLog('Capture: outer')}
+>
+```
+
+Try clicking the inner button — which fires first?
+</Challenge>
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- `SyntheticEvent` wraps native browser events with a cross-browser normalized API
+- Use specific TypeScript types: `React.ChangeEvent<HTMLInputElement>`, `React.MouseEvent<HTMLButtonElement>`, etc.
+- `e.preventDefault()` — stop default browser action (form submit, link navigation)
+- `e.stopPropagation()` — stop event from bubbling to parent elements
+- `e.nativeEvent` — access the underlying browser event if needed
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "What is event delegation and how does React use it?",
+    answer: "Event delegation is attaching a single event listener to a parent element rather than attaching listeners to every child. When an event fires, it bubbles up to the parent which handles it. React uses a single event listener at the root container (not document in React 17+, but the root DOM node). This means React's event system is more memory-efficient than native individual listeners, and React can manage event cleanup automatically without memory leaks.",
+    level: "senior"
+  }
+]} />

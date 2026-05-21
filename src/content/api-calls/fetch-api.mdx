@@ -1,0 +1,286 @@
+---
+title: Fetch API & Axios
+description: Make HTTP requests in React using the native Fetch API and Axios — with proper loading, error, and data state management.
+category: API Calls & Data Fetching
+order: 1
+slug: api-calls/fetch-api
+difficulty: intermediate
+estimatedTime: 12
+tags: [fetch, axios, HTTP, useEffect, loading, error handling, TypeScript]
+lastUpdated: 2024-01-15
+---
+
+# Fetch API & Axios
+
+Fetching data from a server is one of the most common tasks in React. The native `fetch()` function and the Axios library are the two primary tools. Paired with `useEffect`, they form the foundation of data fetching before React Query.
+
+## Basic Fetch with useEffect
+
+```tsx
+interface Post {
+  id:    number
+  title: string
+  body:  string
+}
+
+function PostList() {
+  const [posts, setPosts]     = useState<Post[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError]     = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false   // cleanup flag to prevent state updates after unmount
+
+    async function fetchPosts() {
+      try {
+        setLoading(true)
+        const res = await fetch('https://jsonplaceholder.typicode.com/posts')
+
+        if (!res.ok) {
+          throw new Error(`HTTP error: ${res.status}`)
+        }
+
+        const data: Post[] = await res.json()
+        if (!cancelled) setPosts(data)
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Unknown error')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    fetchPosts()
+
+    return () => { cancelled = true }   // cleanup: ignore response if component unmounts
+  }, [])
+
+  if (loading) return <div>Loading...</div>
+  if (error)   return <div>Error: {error}</div>
+  return (
+    <ul>
+      {posts.map(post => (
+        <li key={post.id}>{post.title}</li>
+      ))}
+    </ul>
+  )
+}
+```
+
+## Custom useFetch Hook
+
+Extract the pattern into a reusable hook:
+
+```tsx
+function useFetch<T>(url: string) {
+  const [data, setData]       = useState<T | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError]     = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(url)
+        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+        const json: T = await res.json()
+        if (!cancelled) setData(json)
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to fetch')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    load()
+    return () => { cancelled = true }
+  }, [url])
+
+  return { data, loading, error }
+}
+
+// Usage
+function UserProfile({ userId }: { userId: number }) {
+  const { data: user, loading, error } = useFetch<User>(`/api/users/${userId}`)
+
+  if (loading) return <Skeleton />
+  if (error)   return <Error message={error} />
+  if (!user)   return null
+
+  return <div>{user.name}</div>
+}
+```
+
+## Axios
+
+Axios is a promise-based HTTP client that provides cleaner syntax, automatic JSON parsing, and better error handling than raw `fetch`:
+
+```tsx
+import axios from 'axios'
+
+// Create a configured instance
+const api = axios.create({
+  baseURL: 'https://api.example.com',
+  timeout: 10000,
+  headers: { 'Content-Type': 'application/json' },
+})
+
+// Add auth token to all requests
+api.interceptors.request.use(config => {
+  const token = localStorage.getItem('token')
+  if (token) config.headers.Authorization = `Bearer ${token}`
+  return config
+})
+
+// Centralized error handling
+api.interceptors.response.use(
+  res => res,
+  err => {
+    if (err.response?.status === 401) {
+      logout()
+    }
+    return Promise.reject(err)
+  }
+)
+
+// Usage
+async function createPost(data: Omit<Post, 'id'>) {
+  const res = await api.post<Post>('/posts', data)
+  return res.data
+}
+```
+
+<ComparisonTable
+  columns={[
+    { key: 'fetch', label: 'Native Fetch' },
+    { key: 'axios', label: 'Axios', highlight: true },
+  ]}
+  rows={[
+    { feature: 'JSON parsing', fetch: 'Manual (await res.json())', axios: 'Automatic' },
+    { feature: 'Error on 4xx/5xx', fetch: 'No — res.ok must be checked', axios: 'Yes — throws automatically' },
+    { feature: 'Interceptors', fetch: 'Manual wrapper needed', axios: 'Built-in request/response' },
+    { feature: 'Timeout', fetch: 'AbortController needed', axios: 'timeout option built-in' },
+    { feature: 'Bundle size', fetch: '0kb (native)', axios: '~13kb gzipped' },
+    { feature: 'Cancel requests', fetch: 'AbortController', axios: 'AbortController or CancelToken' },
+  ]}
+/>
+
+## Interactive Example — Fetch with Loading States
+
+Hit the API and see all three states (loading → success/error) in action:
+
+<LiveEditor code={`import { useState, useEffect, useCallback } from 'react'
+
+// Custom useFetch hook
+function useFetch<T>(url: string) {
+  const [data, setData]     = useState<T | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError]   = useState<string | null>(null)
+
+  const fetchData = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(\`HTTP \${res.status}: \${res.statusText}\`)
+      const json = await res.json()
+      setData(json)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Unknown error')
+    } finally {
+      setLoading(false)
+    }
+  }, [url])
+
+  useEffect(() => { fetchData() }, [fetchData])
+
+  return { data, loading, error, refetch: fetchData }
+}
+
+interface Pokemon { name: string; id: number; sprites: { front_default: string }; types: { type: { name: string } }[] }
+
+function PokemonCard({ pokemon }: { pokemon: Pokemon }) {
+  const typeColor: Record<string, string> = {
+    fire: '#ef4444', water: '#3b82f6', grass: '#22c55e',
+    electric: '#eab308', psychic: '#a855f7', normal: '#9ca3af',
+  }
+  return (
+    <div style={{ textAlign: 'center', padding: 16 }}>
+      <img src={pokemon.sprites.front_default} alt={pokemon.name} style={{ width: 96, height: 96, imageRendering: 'pixelated' }} />
+      <h3 style={{ margin: '4px 0 8px', textTransform: 'capitalize', fontSize: 20 }}>
+        #{pokemon.id} {pokemon.name}
+      </h3>
+      <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+        {pokemon.types.map(({ type }) => (
+          <span key={type.name} style={{
+            padding: '3px 10px', borderRadius: 999, fontSize: 12, fontWeight: 700, textTransform: 'capitalize',
+            background: typeColor[type.name] ?? '#9ca3af', color: 'white',
+          }}>{type.name}</span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+export default function App() {
+  const [id, setId] = useState(1)
+  const { data, loading, error, refetch } = useFetch<Pokemon>(\`https://pokeapi.co/api/v2/pokemon/\${id}\`)
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: 20, maxWidth: 340, textAlign: 'center' }}>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginBottom: 16 }}>
+        <button onClick={() => setId(Math.max(1, id - 1))} disabled={loading || id <= 1}
+          style={{ padding: '8px 16px', border: '1px solid #e5e7eb', borderRadius: 8, cursor: 'pointer', background: '#f9fafb' }}>←</button>
+        <span style={{ padding: '8px 12px', fontSize: 14, lineHeight: '20px' }}>#{id}</span>
+        <button onClick={() => setId(Math.min(151, id + 1))} disabled={loading || id >= 151}
+          style={{ padding: '8px 16px', border: '1px solid #e5e7eb', borderRadius: 8, cursor: 'pointer', background: '#f9fafb' }}>→</button>
+        <button onClick={refetch} disabled={loading}
+          style={{ padding: '8px 14px', background: '#6366f1', color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>↺</button>
+      </div>
+
+      {loading && (
+        <div style={{ padding: 32 }}>
+          <div style={{ width: 32, height: 32, border: '3px solid #e5e7eb', borderTopColor: '#6366f1', borderRadius: '50%', animation: 'spin 0.6s linear infinite', margin: '0 auto' }} />
+          <p style={{ color: '#6b7280', fontSize: 14, marginTop: 8 }}>Loading…</p>
+          <style>{'@keyframes spin { to { transform: rotate(360deg) } }'}</style>
+        </div>
+      )}
+      {error && (
+        <div style={{ padding: 16, background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 10 }}>
+          <div style={{ fontSize: 20, marginBottom: 4 }}>❌</div>
+          <p style={{ color: '#dc2626', fontSize: 13, margin: 0 }}>{error}</p>
+        </div>
+      )}
+      {!loading && !error && data && <PokemonCard pokemon={data} />}
+    </div>
+  )
+}`} />
+
+<Challenge title="Add a search by name">
+Replace the ID navigation with a text input that lets you type a Pokémon name.
+
+Hint: the API accepts names too — `https://pokeapi.co/api/v2/pokemon/pikachu`.
+
+Make the URL reactive: update it when the user presses Enter or clicks a Search button.
+</Challenge>
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- Always track `loading`, `error`, and `data` state when fetching
+- Use a `cancelled` flag in `useEffect` cleanup to prevent setting state after unmount
+- Check `res.ok` with native `fetch` — HTTP errors don't throw automatically
+- Extract fetch logic into `useFetch<T>(url)` for reuse
+- Axios provides interceptors, auto JSON parsing, and automatic error throwing for non-2xx responses
+- For production apps, prefer React Query or SWR over raw fetch in useEffect
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "Why do we need a cancelled flag or AbortController in fetch useEffect?",
+    answer: "When a component unmounts (navigates away, conditionally removed), any in-flight async operations still complete and try to call setState on the unmounted component. In React 18 strict mode this causes warnings. The cancelled flag is a simple solution: set it to true in the cleanup function and check it before calling setState. AbortController is the proper browser-native solution — it actually cancels the network request, stopping bandwidth usage too. For React Query, this cancellation is handled automatically.",
+    level: "mid"
+  }
+]} />

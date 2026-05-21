@@ -1,0 +1,199 @@
+---
+title: JSX Rules
+description: The rules every React developer must know to write valid JSX — from single root elements to attribute naming conventions.
+category: JSX
+order: 3
+slug: jsx/jsx-rules
+difficulty: beginner
+estimatedTime: 8
+tags: [jsx, rules, fragments, className, camelCase, self-closing]
+lastUpdated: 2024-01-15
+---
+
+# JSX Rules
+
+JSX looks like HTML but it compiles to JavaScript function calls. That's why it has stricter rules than HTML — it's not a markup language, it's syntax sugar over `React.createElement()`.
+
+## Rule 1: Return a Single Root Element
+
+Every component must return exactly one root element. If you need to return multiple elements, wrap them.
+
+```tsx
+// ❌ Multiple root elements — syntax error
+function Broken() {
+  return (
+    <h1>Title</h1>
+    <p>Paragraph</p>
+  )
+}
+
+// ✅ Wrapped in a div
+function WithDiv() {
+  return (
+    <div>
+      <h1>Title</h1>
+      <p>Paragraph</p>
+    </div>
+  )
+}
+
+// ✅ Wrapped in a Fragment — no extra DOM node
+function WithFragment() {
+  return (
+    <>
+      <h1>Title</h1>
+      <p>Paragraph</p>
+    </>
+  )
+}
+```
+
+Use `<>...</>` (Fragment shorthand) when you don't want an extra `<div>` in the DOM — important for flex/grid layouts, table rows, and list items.
+
+## Rule 2: Close All Tags
+
+HTML lets you leave some tags unclosed (`<br>`, `<img>`, `<input>`). JSX does not.
+
+```tsx
+// ❌ Unclosed tags — error in JSX
+<img src="photo.jpg">
+<br>
+<input type="text">
+
+// ✅ Self-close tags with no children
+<img src="photo.jpg" />
+<br />
+<input type="text" />
+
+// ✅ Or explicitly close them
+<input type="text"></input>
+```
+
+## Rule 3: camelCase Attributes
+
+JSX maps to JavaScript objects, so HTML attributes become camelCase properties.
+
+```tsx
+// HTML → JSX attribute mapping
+<div class="box">          →  <div className="box">
+<label for="email">        →  <label htmlFor="email">
+<div tabindex="0">         →  <div tabIndex={0}>
+<button onclick="...">     →  <button onClick={handler}>
+<input readonly>           →  <input readOnly />
+<input maxlength="10">     →  <input maxLength={10} />
+<div style="color: red">   →  <div style={{ color: 'red' }}>
+```
+
+`class` and `for` are reserved JavaScript keywords — that's why they're renamed.
+
+## Rule 4: JavaScript in Curly Braces
+
+Embed any JavaScript expression inside `{}`. Statements (if, for, while) don't work — only expressions.
+
+```tsx
+const name = 'Alice'
+const isAdmin = true
+
+function Profile() {
+  return (
+    <div>
+      {/* String interpolation */}
+      <h1>Hello, {name}!</h1>
+
+      {/* Ternary (expression) ✅ */}
+      <p>{isAdmin ? 'Admin' : 'User'}</p>
+
+      {/* Function call (expression) ✅ */}
+      <p>{name.toUpperCase()}</p>
+
+      {/* Math (expression) ✅ */}
+      <p>{2 + 2}</p>
+
+      {/* if statement ❌ — not an expression */}
+      {/* {if (isAdmin) { return <span>Admin</span> }} */}
+    </div>
+  )
+}
+```
+
+## Rule 5: Inline Styles Are Objects
+
+HTML style is a string. JSX style is an object with camelCase properties.
+
+```tsx
+// ❌ HTML-style string — error
+<div style="color: red; font-size: 16px">
+
+// ✅ JSX-style object — double curly: outer = JS expression, inner = object literal
+<div style={{ color: 'red', fontSize: '16px', marginTop: 8 }}>
+
+// ✅ Extract to variable for clarity
+const cardStyle = {
+  backgroundColor: '#f0f0f0',
+  borderRadius: '8px',
+  padding: '16px',
+}
+<div style={cardStyle}>
+```
+
+## Rule 6: Comments Use `{/* */}`
+
+```tsx
+function Example() {
+  return (
+    <div>
+      {/* This is a JSX comment */}
+      <p>Content</p>
+      {/* 
+        Multi-line comments
+        work too
+      */}
+    </div>
+  )
+}
+
+// ❌ HTML comments don't work in JSX
+// <!-- this will cause an error -->
+```
+
+## Quick Reference
+
+<ComparisonTable
+  columns={[
+    { key: 'html', label: 'HTML' },
+    { key: 'jsx', label: 'JSX', highlight: true },
+  ]}
+  rows={[
+    { feature: 'Multiple roots', html: 'Allowed', jsx: 'Must wrap in one root or Fragment' },
+    { feature: 'Self-closing tags', html: 'Optional', jsx: 'Required (/>)' },
+    { feature: 'CSS class', html: 'class=""', jsx: 'className=""' },
+    { feature: 'Label target', html: 'for=""', jsx: 'htmlFor=""' },
+    { feature: 'Inline styles', html: 'style="color: red"', jsx: 'style={{ color: "red" }}' },
+    { feature: 'Comments', html: '<!-- comment -->', jsx: '{/* comment */}' },
+    { feature: 'Event handlers', html: 'onclick', jsx: 'onClick (camelCase)' },
+  ]}
+/>
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- JSX must have a single root — use `<>...</>` Fragments to avoid extra DOM nodes
+- All tags must be closed or self-closed with `/>`
+- Attributes are camelCase: `className`, `htmlFor`, `onClick`, `tabIndex`
+- Embed JavaScript with `{}` — expressions only, not statements
+- Inline styles are objects with camelCase keys: `{{ fontSize: '16px' }}`
+- Comments in JSX: `{/* comment */}`
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "Why does JSX use className instead of class?",
+    answer: "Because JSX compiles to JavaScript, and 'class' is a reserved keyword in JavaScript (used for ES6 classes). React chose className to avoid the conflict. Similarly, 'for' becomes htmlFor because 'for' is a reserved word for loops. The JSX transformer converts className back to 'class' in the actual DOM.",
+    level: "junior"
+  },
+  {
+    question: "When should you use a Fragment vs a wrapping div?",
+    answer: "Use Fragment (<> </>) when: (1) You're rendering table rows or cells — adding a div inside a <table> or <tr> is invalid HTML. (2) You're rendering list items — a div inside a <ul> breaks semantic HTML. (3) You're in a flex/grid container where adding an extra div would break your layout. Use a div when you actually need a container element — for styling, grouping, click handlers, etc. Fragments produce no DOM output so they're zero-cost for the cases where you just need to satisfy JSX's single-root requirement.",
+    level: "junior"
+  }
+]} />

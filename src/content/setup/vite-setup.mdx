@@ -1,0 +1,248 @@
+---
+title: Vite Setup
+description: Create a production-ready React + TypeScript project with Vite in under 2 minutes.
+category: Setup
+order: 2
+slug: setup/vite-setup
+difficulty: beginner
+estimatedTime: 10
+tags: [vite, setup, typescript, tooling, bundler, hmr]
+lastUpdated: 2024-01-15
+---
+
+# Vite Setup
+
+**Vite** (French for "fast") is the recommended build tool for new React projects. It replaces Create React App and Webpack for most use cases, offering dramatically faster cold starts and Hot Module Replacement (HMR).
+
+<Callout type="tip" title="Why Vite over CRA?">
+Create React App uses Webpack, which bundles your entire app on startup. Vite uses native ES modules — the browser loads files on demand. A CRA app might take 30+ seconds to start; a Vite app starts in under a second.
+</Callout>
+
+## Prerequisites
+
+Make sure you have Node.js 18+ installed:
+
+```bash
+node --version   # should print v18.x.x or higher
+npm --version    # should print 9.x.x or higher
+```
+
+## Create a New Project
+
+```bash
+# Using npm
+npm create vite@latest my-react-app -- --template react-ts
+
+# Using yarn
+yarn create vite my-react-app --template react-ts
+
+# Using pnpm (recommended for monorepos)
+pnpm create vite my-react-app --template react-ts
+```
+
+The `react-ts` template gives you React + TypeScript pre-configured.
+
+## Start the Dev Server
+
+```bash
+cd my-react-app
+npm install
+npm run dev
+```
+
+You'll see:
+
+```
+  VITE v5.x.x  ready in 342 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: use --host to expose
+  ➜  press h + enter to show help
+```
+
+<Callout type="success">
+342ms startup time vs ~30-60 seconds with CRA. That's the Vite difference.
+</Callout>
+
+## Project Structure
+
+```
+my-react-app/
+├── public/                # Static assets (copied as-is)
+│   └── vite.svg
+├── src/
+│   ├── assets/            # Imported assets (processed by Vite)
+│   ├── App.tsx            # Root component
+│   ├── App.css
+│   ├── main.tsx           # Entry point
+│   ├── index.css          # Global styles
+│   └── vite-env.d.ts      # Vite type declarations
+├── index.html             # Root HTML (Vite entry)
+├── vite.config.ts         # Vite configuration
+├── tsconfig.json          # TypeScript config
+└── package.json
+```
+
+## Key Configuration
+
+```ts
+// vite.config.ts
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import path from 'path'
+
+export default defineConfig({
+  plugins: [
+    react(),  // Enables Fast Refresh (HMR for React)
+  ],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),  // Import @/components/...
+    },
+  },
+  server: {
+    port: 3000,
+    open: true,  // Auto-open browser
+  },
+  build: {
+    outDir: 'dist',
+    sourcemap: true,
+    rollupOptions: {
+      output: {
+        // Code splitting: vendor chunks cached by browsers
+        manualChunks: {
+          vendor: ['react', 'react-dom'],
+        },
+      },
+    },
+  },
+})
+```
+
+## Available Scripts
+
+| Script | Description |
+|---|---|
+| `npm run dev` | Start dev server with HMR |
+| `npm run build` | Type-check + production build |
+| `npm run preview` | Preview production build locally |
+| `npm run lint` | ESLint check |
+
+## Adding Popular Libraries
+
+```bash
+# Routing
+npm install react-router-dom
+
+# State management
+npm install @reduxjs/toolkit react-redux
+# or
+npm install zustand
+
+# Styling
+npm install tailwindcss postcss autoprefixer
+npx tailwindcss init -p
+
+# Forms
+npm install react-hook-form zod @hookform/resolvers
+
+# Data fetching
+npm install @tanstack/react-query axios
+
+# UI components
+npm install @radix-ui/react-dialog lucide-react clsx
+```
+
+## TypeScript Path Aliases
+
+Add this to `tsconfig.json` to use `@/` imports:
+
+```json
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  }
+}
+```
+
+Now you can import like this:
+
+```tsx
+// Instead of:
+import { Button } from '../../../components/ui/Button'
+
+// Write:
+import { Button } from '@/components/ui/Button'
+```
+
+## Environment Variables
+
+```bash
+# .env.local (never commit this)
+VITE_API_URL=https://api.example.com
+VITE_GA_ID=G-XXXXXXXX
+
+# .env (safe to commit — defaults only)
+VITE_APP_NAME=My React App
+```
+
+```tsx
+// Access in code with import.meta.env
+const apiUrl = import.meta.env.VITE_API_URL
+console.log(import.meta.env.MODE)  // "development" or "production"
+```
+
+<Callout type="warning" title="Prefix with VITE_">
+Only variables prefixed with `VITE_` are exposed to your client-side code. Never put secrets in VITE_ variables — they are visible in the browser.
+</Callout>
+
+## Production Build
+
+```bash
+npm run build
+```
+
+Output in `dist/`:
+```
+dist/
+├── assets/
+│   ├── index-Cx7ygL2H.js       # Main bundle (code-split)
+│   ├── vendor-D8kY7p3m.js      # React + react-dom (cached by CDN)
+│   └── index-BvxCd4eH.css      # Styles
+└── index.html
+```
+
+<Callout type="info" title="Content-hash filenames">
+Vite automatically adds content hashes to filenames (e.g., `index-Cx7ygL2H.js`). This enables **long-term browser caching** — browsers cache the file indefinitely, but get the new version immediately when content changes.
+</Callout>
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- Vite starts in milliseconds using native ES modules instead of bundling
+- Use `npm create vite@latest` with the `react-ts` template for TypeScript support
+- Configure path aliases (`@/`) for cleaner imports
+- Environment variables must be prefixed with `VITE_`
+- Production builds include code splitting and content-hash caching automatically
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "What is the main advantage of Vite over Webpack/CRA?",
+    answer: "Vite uses native ES modules during development — the browser loads files on demand instead of bundling everything upfront. This makes cold start ~100x faster (milliseconds vs 30+ seconds for large apps). HMR updates are also near-instant because Vite only sends the changed module to the browser. In production, Vite still uses Rollup to create optimized bundles.",
+    level: "junior"
+  },
+  {
+    question: "How does Vite's development server differ from Webpack's in terms of HMR?",
+    answer: "Webpack bundles all modules together before serving, so HMR must rebundle a chunk on each change. Vite serves unbundled ES modules and uses browser-native ES module imports. On change, Vite invalidates only the changed module and its importers. The browser fetches just that module. This makes HMR essentially O(1) in module change size rather than O(bundle size). For a 1000-module app, Webpack HMR might take 2 seconds; Vite HMR takes ~50ms.",
+    level: "mid"
+  },
+  {
+    question: "How do you configure code splitting in a Vite production build?",
+    answer: "Vite uses Rollup for production builds. You configure manual chunks in rollupOptions.output.manualChunks: specify a function or object mapping chunk names to module arrays. The built-in dynamic import() also creates automatic split points. Additionally, React.lazy() + Suspense works with Vite's code splitting. Best practice: separate vendor libraries (react, react-dom) from app code so browsers cache vendor chunks across deploys.",
+    level: "senior"
+  }
+]} />

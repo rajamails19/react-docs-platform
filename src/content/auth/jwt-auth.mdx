@@ -1,0 +1,664 @@
+---
+title: JWT Authentication in React
+description: Implement secure JWT-based authentication in React SPAs — from token storage and axios interceptors to refresh token rotation and route protection.
+category: Authentication
+order: 1
+slug: auth/jwt-auth
+difficulty: advanced
+estimatedTime: 45
+tags: [jwt, authentication, authorization, axios, security, localStorage, refresh-token, protected-routes]
+lastUpdated: "2024-01-15"
+---
+
+# JWT Authentication in React
+
+JSON Web Tokens (JWTs) are the dominant authentication mechanism for modern single-page applications. This guide walks through the complete authentication lifecycle — from understanding the token structure to implementing silent refresh and protecting routes.
+
+## What Is a JWT?
+
+A JWT is a compact, self-contained string that encodes a JSON payload and is cryptographically signed. It consists of three Base64URL-encoded segments separated by dots:
+
+```
+header.payload.signature
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyXzEyMyIsImVtYWlsIjoiYWxpY2VAZXhhbXBsZS5jb20iLCJyb2xlIjoiYWRtaW4iLCJpYXQiOjE3MDUzMjgwMDAsImV4cCI6MTcwNTMzMTYwMH0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c
+```
+
+**Header** — algorithm and token type:
+
+```json
+{
+  "alg": "HS256",
+  "typ": "JWT"
+}
+```
+
+**Payload** — claims (data you put in the token):
+
+```json
+{
+  "sub": "user_123",
+  "email": "alice@example.com",
+  "role": "admin",
+  "iat": 1705328000,
+  "exp": 1705331600
+}
+```
+
+**Signature** — HMAC-SHA256 of header + payload using the server's secret key. The client cannot forge this.
+
+<Callout type="warning">
+**Never put sensitive data in a JWT payload.** The payload is Base64URL-encoded — not encrypted. Anyone who holds the token can decode and read the claims. Only include what you need for authorization decisions (user ID, role, expiry).
+</Callout>
+
+## Why JWT for SPAs?
+
+Traditional web apps use server-side sessions: the server stores session state, and the browser sends a session cookie on every request. JWTs flip this model — all state lives in the token itself, making the server completely stateless.
+
+<ComparisonTable
+  columns={["Aspect", "JWT (Stateless)", "Session Cookie (Stateful)"]}
+  rows={[
+    ["Server storage", "None — token is self-contained", "Session store (Redis, DB) required"],
+    ["Scalability", "Excellent — any server can verify", "Requires sticky sessions or shared store"],
+    ["Revocation", "Hard — must wait for expiry or use a blocklist", "Easy — delete session from store"],
+    ["Payload size", "Grows with claims (~200–600 bytes typical)", "Cookie is just a session ID (~32 bytes)"],
+    ["Cross-domain", "Works natively via Authorization header", "Requires CORS + SameSite configuration"],
+    ["Mobile / native apps", "First-class support", "Awkward — cookie jars vary by platform"],
+    ["Security surface", "XSS risk if stored in localStorage", "CSRF risk if stored in cookies"],
+  ]}
+/>
+
+## The Complete Auth Flow
+
+<MermaidDiagram chart={`
+sequenceDiagram
+  participant U as User
+  participant R as React SPA
+  participant A as Auth API
+  participant P as Protected API
+
+  U->>R: Enter email + password
+  R->>A: POST /auth/login { email, password }
+  A->>A: Verify credentials
+  A-->>R: { accessToken, refreshToken, user }
+  R->>R: Store tokens (see storage section)
+  R->>R: Update auth context / state
+  R-->>U: Redirect to dashboard
+
+  Note over R,P: Subsequent authenticated requests
+  R->>P: GET /api/data\n(Authorization: Bearer <accessToken>)
+  P->>P: Verify JWT signature + expiry
+  P-->>R: 200 { data }
+
+  Note over R,A: Access token expires
+  R->>A: POST /auth/refresh { refreshToken }
+  A->>A: Verify refresh token
+  A-->>R: { accessToken } (new)
+  R->>R: Store new access token
+  R->>P: Retry original request with new token
+
+  Note over R,A: User logs out
+  R->>A: POST /auth/logout { refreshToken }
+  A->>A: Invalidate refresh token in DB
+  R->>R: Clear all stored tokens
+  R-->>U: Redirect to login
+`} caption="Complete JWT authentication lifecycle including silent refresh and logout" />
+
+## Implementing Login
+
+Start with a typed auth service that handles the API calls:
+
+```typescript
+// src/services/authService.ts
+import axios from 'axios';
+
+const API_BASE = import.meta.env.VITE_API_URL;
+
+export interface AuthTokens {
+  accessToken: string;
+  refreshToken: string;
+}
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: 'admin' | 'editor' | 'viewer';
+}
+
+export interface LoginResponse extends AuthTokens {
+  user: User;
+}
+
+export async function login(email: string, password: string): Promise<LoginResponse> {
+  const { data } = await axios.post<LoginResponse>(`${API_BASE}/auth/login`, {
+    email,
+    password,
+  });
+  return data;
+}
+
+export async function refreshAccessToken(refreshToken: string): Promise<AuthTokens> {
+  const { data } = await axios.post<AuthTokens>(`${API_BASE}/auth/refresh`, {
+    refreshToken,
+  });
+  return data;
+}
+
+export async function logout(refreshToken: string): Promise<void> {
+  await axios.post(`${API_BASE}/auth/logout`, { refreshToken });
+}
+```
+
+## Token Storage Options
+
+Where you store the JWT is the most consequential security decision you will make.
+
+<ComparisonTable
+  columns={["Storage", "XSS Risk", "CSRF Risk", "Persistence", "Recommendation"]}
+  rows={[
+    ["localStorage", "HIGH — any JS can read it", "None — not sent automatically", "Survives tab close", "Avoid for sensitive apps"],
+    ["sessionStorage", "HIGH — any JS can read it", "None — not sent automatically", "Cleared on tab close", "Slightly better than localStorage"],
+    ["HttpOnly Cookie", "None — JS cannot read it", "Present — cookie sent automatically", "Configurable (session or persistent)", "Best for access tokens"],
+    ["Memory (React state)", "Low — not persisted to storage", "None", "Lost on page refresh", "Best for access tokens if refresh flow is implemented"],
+    ["HttpOnly Cookie (refresh)", "None", "Mitigated with SameSite=Strict", "Persistent", "Best for refresh tokens"],
+  ]}
+/>
+
+<Callout type="danger">
+**The localStorage XSS trap.** If your app has a single XSS vulnerability — injected via a third-party script, a `dangerouslySetInnerHTML` bug, or a compromised npm package — an attacker can call `localStorage.getItem('accessToken')` and exfiltrate your users' tokens silently. HttpOnly cookies are immune to this attack because JavaScript cannot read them at all.
+</Callout>
+
+<Callout type="tip">
+**Recommended pattern for production apps:** Store the short-lived access token in memory (React state / ref) and the long-lived refresh token in an HttpOnly, Secure, SameSite=Strict cookie managed by your backend. On page load, call a `/auth/me` endpoint that uses the refresh cookie to issue a new access token. This gives you XSS protection for both tokens and CSRF protection via SameSite.
+</Callout>
+
+For this tutorial, we will demonstrate the in-memory access token + HttpOnly refresh cookie pattern:
+
+```typescript
+// src/context/AuthContext.tsx
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  type ReactNode,
+} from 'react';
+import { login as apiLogin, logout as apiLogout, refreshAccessToken } from '../services/authService';
+import type { User } from '../services/authService';
+
+interface AuthContextValue {
+  user: User | null;
+  accessToken: string | null;
+  isLoading: boolean;
+  isAuthenticated: boolean;
+  login: (email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextValue | null>(null);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  // Access token in memory — not in localStorage
+  const accessTokenRef = useRef<string | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const setTokens = useCallback((token: string, currentUser: User) => {
+    accessTokenRef.current = token;
+    setAccessToken(token);
+    setUser(currentUser);
+  }, []);
+
+  const clearTokens = useCallback(() => {
+    accessTokenRef.current = null;
+    setAccessToken(null);
+    setUser(null);
+  }, []);
+
+  // On mount: try to restore session via refresh endpoint
+  // The refresh token is in an HttpOnly cookie — sent automatically
+  useEffect(() => {
+    async function restoreSession() {
+      try {
+        const response = await fetch('/auth/refresh', {
+          method: 'POST',
+          credentials: 'include', // send HttpOnly cookie
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setTokens(data.accessToken, data.user);
+        }
+      } catch {
+        // No valid refresh token — user must log in
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    restoreSession();
+  }, [setTokens]);
+
+  const login = useCallback(async (email: string, password: string) => {
+    const data = await apiLogin(email, password);
+    // Backend sets the HttpOnly refresh cookie in the Set-Cookie header
+    setTokens(data.accessToken, data.user);
+  }, [setTokens]);
+
+  const logout = useCallback(async () => {
+    try {
+      // Backend clears the HttpOnly cookie and invalidates the refresh token
+      await apiLogout(accessTokenRef.current ?? '');
+    } finally {
+      clearTokens();
+    }
+  }, [clearTokens]);
+
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        accessToken,
+        isLoading,
+        isAuthenticated: !!accessToken,
+        login,
+        logout,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth(): AuthContextValue {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
+  return ctx;
+}
+```
+
+## Login Form Component
+
+```typescript
+// src/components/LoginForm.tsx
+import { useState, type FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+
+export function LoginForm() {
+  const { login } = useAuth();
+  const navigate = useNavigate();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setIsSubmitting(true);
+
+    try {
+      await login(email, password);
+      navigate('/dashboard');
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('Invalid email or password.');
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} noValidate>
+      <div>
+        <label htmlFor="email">Email</label>
+        <input
+          id="email"
+          type="email"
+          value={email}
+          onChange={e => setEmail(e.target.value)}
+          required
+          autoComplete="email"
+        />
+      </div>
+      <div>
+        <label htmlFor="password">Password</label>
+        <input
+          id="password"
+          type="password"
+          value={password}
+          onChange={e => setPassword(e.target.value)}
+          required
+          autoComplete="current-password"
+        />
+      </div>
+      {error && <p role="alert" style={{ color: 'red' }}>{error}</p>}
+      <button type="submit" disabled={isSubmitting}>
+        {isSubmitting ? 'Signing in…' : 'Sign in'}
+      </button>
+    </form>
+  );
+}
+```
+
+## Attaching JWT to Requests — Axios Interceptor
+
+An axios request interceptor automatically adds the `Authorization: Bearer` header to every outgoing request, and a response interceptor handles 401 errors by attempting a silent token refresh.
+
+```typescript
+// src/lib/apiClient.ts
+import axios, { type AxiosInstance, type InternalAxiosRequestConfig } from 'axios';
+
+let getAccessToken: () => string | null = () => null;
+let refreshAndRetry: (config: InternalAxiosRequestConfig) => Promise<unknown>;
+
+export function configureApiClient(
+  tokenGetter: () => string | null,
+  onRefresh: (config: InternalAxiosRequestConfig) => Promise<unknown>,
+) {
+  getAccessToken = tokenGetter;
+  refreshAndRetry = onRefresh;
+}
+
+export const apiClient: AxiosInstance = axios.create({
+  baseURL: import.meta.env.VITE_API_URL,
+  withCredentials: true, // send HttpOnly refresh cookie
+});
+
+// Attach access token to every request
+apiClient.interceptors.request.use((config) => {
+  const token = getAccessToken();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// Handle 401 — try to refresh and retry once
+let isRefreshing = false;
+let refreshQueue: Array<(token: string) => void> = [];
+
+apiClient.interceptors.response.use(
+  response => response,
+  async (error) => {
+    const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
+
+    if (error.response?.status !== 401 || originalRequest._retry) {
+      return Promise.reject(error);
+    }
+
+    originalRequest._retry = true;
+
+    if (isRefreshing) {
+      // Queue requests while refresh is in flight
+      return new Promise((resolve) => {
+        refreshQueue.push((newToken: string) => {
+          originalRequest.headers.Authorization = `Bearer ${newToken}`;
+          resolve(apiClient(originalRequest));
+        });
+      });
+    }
+
+    isRefreshing = true;
+
+    try {
+      const newToken = await refreshAndRetry(originalRequest);
+      refreshQueue.forEach(cb => cb(newToken as string));
+      refreshQueue = [];
+      return apiClient(originalRequest);
+    } catch (refreshError) {
+      refreshQueue = [];
+      // Refresh failed — user must log in again
+      window.location.href = '/login';
+      return Promise.reject(refreshError);
+    } finally {
+      isRefreshing = false;
+    }
+  },
+);
+```
+
+## Decoding JWT Client-Side
+
+Use `jwt-decode` to read the payload without verifying the signature (verification must happen server-side):
+
+```bash
+npm install jwt-decode
+```
+
+```typescript
+// src/utils/tokenUtils.ts
+import { jwtDecode } from 'jwt-decode';
+
+interface JwtPayload {
+  sub: string;
+  email: string;
+  role: string;
+  iat: number;
+  exp: number;
+}
+
+export function decodeToken(token: string): JwtPayload | null {
+  try {
+    return jwtDecode<JwtPayload>(token);
+  } catch {
+    return null;
+  }
+}
+
+export function isTokenExpired(token: string): boolean {
+  const payload = decodeToken(token);
+  if (!payload) return true;
+  // exp is in seconds; Date.now() is in milliseconds
+  return payload.exp * 1000 < Date.now();
+}
+
+export function getTokenExpiryMs(token: string): number {
+  const payload = decodeToken(token);
+  if (!payload) return 0;
+  return payload.exp * 1000 - Date.now();
+}
+```
+
+<Callout type="warning">
+**Never trust client-side JWT decoding for security decisions.** Decoding only reads the payload — it does not verify the signature. A user could construct an arbitrary payload. Always enforce authorization on the server, where the signature is cryptographically verified using the secret or public key.
+</Callout>
+
+## Silent Token Refresh
+
+Set up a timer to refresh the access token before it expires, preventing users from being logged out mid-session:
+
+```typescript
+// src/hooks/useTokenRefresh.ts
+import { useEffect, useRef } from 'react';
+import { getTokenExpiryMs } from '../utils/tokenUtils';
+
+const REFRESH_MARGIN_MS = 60_000; // refresh 1 minute before expiry
+
+export function useTokenRefresh(
+  accessToken: string | null,
+  onRefresh: () => Promise<void>,
+  onExpired: () => void,
+) {
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!accessToken) return;
+
+    const expiresInMs = getTokenExpiryMs(accessToken);
+
+    if (expiresInMs <= 0) {
+      onExpired();
+      return;
+    }
+
+    const refreshInMs = Math.max(0, expiresInMs - REFRESH_MARGIN_MS);
+
+    timerRef.current = setTimeout(async () => {
+      try {
+        await onRefresh();
+      } catch {
+        onExpired();
+      }
+    }, refreshInMs);
+
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [accessToken, onRefresh, onExpired]);
+}
+```
+
+## Protecting Routes
+
+Create a wrapper component that redirects unauthenticated users:
+
+```typescript
+// src/components/ProtectedRoute.tsx
+import { Navigate, Outlet, useLocation } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+
+interface ProtectedRouteProps {
+  allowedRoles?: string[];
+}
+
+export function ProtectedRoute({ allowedRoles }: ProtectedRouteProps) {
+  const { isAuthenticated, isLoading, user } = useAuth();
+  const location = useLocation();
+
+  if (isLoading) {
+    return <div aria-live="polite">Verifying session…</div>;
+  }
+
+  if (!isAuthenticated) {
+    // Preserve the intended destination so we can redirect after login
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  if (allowedRoles && user && !allowedRoles.includes(user.role)) {
+    return <Navigate to="/403" replace />;
+  }
+
+  return <Outlet />;
+}
+```
+
+Wire it into your router:
+
+```typescript
+// src/App.tsx
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { AuthProvider } from './context/AuthContext';
+import { ProtectedRoute } from './components/ProtectedRoute';
+import { LoginForm } from './components/LoginForm';
+import { Dashboard } from './pages/Dashboard';
+import { AdminPanel } from './pages/AdminPanel';
+
+export function App() {
+  return (
+    <BrowserRouter>
+      <AuthProvider>
+        <Routes>
+          <Route path="/login" element={<LoginForm />} />
+
+          {/* All authenticated users */}
+          <Route element={<ProtectedRoute />}>
+            <Route path="/dashboard" element={<Dashboard />} />
+          </Route>
+
+          {/* Admin only */}
+          <Route element={<ProtectedRoute allowedRoles={['admin']} />}>
+            <Route path="/admin" element={<AdminPanel />} />
+          </Route>
+        </Routes>
+      </AuthProvider>
+    </BrowserRouter>
+  );
+}
+```
+
+After login, redirect to the originally requested page:
+
+```typescript
+// src/components/LoginForm.tsx — updated navigate call
+const location = useLocation();
+const from = (location.state as { from?: Location })?.from?.pathname ?? '/dashboard';
+
+// inside handleSubmit after login():
+navigate(from, { replace: true });
+```
+
+## Logout
+
+A correct logout must do three things: invalidate the refresh token on the server, clear the in-memory access token, and redirect to the login page.
+
+```typescript
+// src/components/LogoutButton.tsx
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+
+export function LogoutButton() {
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+
+  async function handleLogout() {
+    await logout();
+    navigate('/login', { replace: true });
+  }
+
+  return (
+    <button type="button" onClick={handleLogout}>
+      Sign out
+    </button>
+  );
+}
+```
+
+<Callout type="danger">
+**Just deleting the access token from localStorage is not enough.** If refresh tokens are not invalidated server-side, an attacker who captured the refresh token can continue minting new access tokens indefinitely. Always call a logout endpoint that invalidates the refresh token in your database.
+</Callout>
+
+## Security Pitfalls Summary
+
+<Callout type="info">
+**Key security checklist for JWT implementations:**
+
+1. **Short-lived access tokens** — 15 minutes is common; never more than 1 hour without rotation.
+2. **HttpOnly cookies for refresh tokens** — prevents JavaScript from reading them.
+3. **HTTPS only** — tokens transmitted over HTTP are trivially intercepted.
+4. **Validate on every request** — never skip server-side signature and expiry checks.
+5. **Rotate refresh tokens** — issue a new refresh token on every use (refresh token rotation).
+6. **Maintain a refresh token blocklist** — for immediate revocation on logout.
+7. **Set appropriate `exp` and `iat` claims** — reject tokens with clock skew > 30 seconds.
+8. **Use strong secrets** — at least 256 bits of entropy for HS256; prefer RS256 with key pairs in production.
+</Callout>
+
+<InterviewQA
+  questions={[
+    {
+      question: "Why is storing a JWT in localStorage considered a security risk, and what is a safer alternative?",
+      answer: "localStorage is accessible by any JavaScript running on the page. If your application has a Cross-Site Scripting (XSS) vulnerability — even in a third-party script or npm package — an attacker can execute `localStorage.getItem('token')` and exfiltrate the token silently. The safer alternative is to store the access token in memory (React state or a closure) and store the refresh token in an HttpOnly cookie, which JavaScript cannot read at all. On page load, a call to a `/auth/refresh` endpoint uses the cookie to issue a new in-memory access token, restoring the session without exposing it to JS.",
+      level: "intermediate"
+    },
+    {
+      question: "What is refresh token rotation, and why does it improve security?",
+      answer: "Refresh token rotation means that every time you use a refresh token to get a new access token, the server also issues a new refresh token and invalidates the old one. This limits the window of opportunity if a refresh token is stolen: the attacker can only use it once before it becomes invalid. If rotation is implemented with reuse detection — where the server detects that an already-rotated token has been presented again — it can flag a potential token theft and revoke the entire token family, forcing the legitimate user to re-authenticate.",
+      level: "advanced"
+    },
+    {
+      question: "Can you decode a JWT on the client side without the server secret? Is that safe?",
+      answer: "Yes — the payload is only Base64URL-encoded, not encrypted, so any code (including the `jwt-decode` library) can decode it without knowing the secret. This is safe for reading non-sensitive claims like the user's display name or role for UI rendering purposes. It is never safe to trust client-side decoded claims for security decisions like granting access to data. Only the server, which verifies the cryptographic signature, can trust the claims. A malicious user could construct a token with a forged payload — the client has no way to detect this without the secret.",
+      level: "intermediate"
+    },
+    {
+      question: "How would you handle a scenario where multiple API requests fail with 401 simultaneously because the access token just expired?",
+      answer: "Without coordination, each failing request would independently attempt a token refresh, causing multiple simultaneous refresh calls — most of which would fail because the first refresh invalidates the refresh token (with token rotation). The solution is the queuing pattern: use a boolean `isRefreshing` flag and a `refreshQueue` array. When the first 401 fires, set `isRefreshing = true` and start the refresh. Subsequent 401s see `isRefreshing = true` and add a callback to `refreshQueue` instead of starting their own refresh. When the refresh completes, iterate `refreshQueue`, calling each callback with the new token to retry all queued requests. This is shown in the axios interceptor example above.",
+      level: "advanced"
+    }
+  ]}
+/>

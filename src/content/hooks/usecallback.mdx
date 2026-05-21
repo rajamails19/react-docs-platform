@@ -1,0 +1,251 @@
+---
+title: useCallback Hook
+description: Memoize functions to prevent unnecessary re-renders in child components that depend on stable function references.
+category: Hooks
+order: 5
+slug: hooks/usecallback
+difficulty: intermediate
+estimatedTime: 10
+tags: [useCallback, memoization, performance, React.memo, referential equality]
+lastUpdated: 2024-01-15
+---
+
+# useCallback
+
+`useCallback` returns a memoized version of a function that only changes if one of its dependencies changes. It prevents child components from re-rendering when the parent re-renders but the function hasn't changed.
+
+```tsx
+const memoizedFn = useCallback(() => {
+  doSomething(a, b)
+}, [a, b])
+```
+
+## The Problem: New Function Every Render
+
+```tsx
+// ❌ Without useCallback — handleClick is a NEW function on every parent render
+function Parent() {
+  const [count, setCount] = useState(0)
+  const [name, setName] = useState('')
+
+  // New object reference every render → ExpensiveChild always re-renders
+  const handleClick = () => {
+    console.log('clicked')
+  }
+
+  return (
+    <div>
+      <input value={name} onChange={e => setName(e.target.value)} />
+      <ExpensiveChild onClick={handleClick} />
+    </div>
+  )
+}
+
+// React.memo won't help if onClick changes every render
+const ExpensiveChild = React.memo(({ onClick }: { onClick: () => void }) => {
+  console.log('ExpensiveChild rendered')
+  return <button onClick={onClick}>Click</button>
+})
+```
+
+Every time you type in the input, `Parent` re-renders. A new `handleClick` is created. Even though `React.memo` wraps `ExpensiveChild`, the prop changed (new function reference) so it re-renders too.
+
+## The Fix: useCallback
+
+```tsx
+// ✅ With useCallback — handleClick is stable across renders
+function Parent() {
+  const [count, setCount] = useState(0)
+  const [name, setName] = useState('')
+
+  const handleClick = useCallback(() => {
+    console.log('clicked')
+  }, [])  // empty deps — never changes
+
+  const handleCountClick = useCallback(() => {
+    setCount(c => c + 1)   // use updater form to avoid count in deps
+  }, [])
+
+  return (
+    <div>
+      <input value={name} onChange={e => setName(e.target.value)} />
+      <ExpensiveChild onClick={handleClick} />
+    </div>
+  )
+}
+```
+
+Now when you type, `handleClick` is the same reference — `ExpensiveChild` doesn't re-render.
+
+## With Dependencies
+
+```tsx
+function SearchPage() {
+  const [query, setQuery]   = useState('')
+  const [filters, setFilter] = useState({ category: 'all' })
+
+  // Recreates only when query or filters changes
+  const handleSearch = useCallback(async () => {
+    const results = await searchAPI(query, filters)
+    setResults(results)
+  }, [query, filters])
+
+  return (
+    <>
+      <SearchBar onChange={setQuery} onSearch={handleSearch} />
+      <FilterPanel onChange={setFilter} onApply={handleSearch} />
+    </>
+  )
+}
+```
+
+## Interactive Example — See Re-Renders
+
+Watch how many times `ExpensiveChild` renders as you type. Toggle `useCallback` to compare:
+
+<LiveEditor code={`import { useState, useCallback, memo, useRef } from 'react'
+
+// Simulates an expensive child
+const ExpensiveChild = memo(({ onClick }: { onClick: () => void }) => {
+  const renderCount = useRef(0)
+  renderCount.current++
+  return (
+    <div style={{ padding: '12px 16px', background: '#fef9c3', border: '1px solid #fde047', borderRadius: 8 }}>
+      <div style={{ fontWeight: 600, fontSize: 14 }}>ExpensiveChild</div>
+      <div style={{ fontSize: 13, color: '#92400e', marginTop: 4 }}>
+        Rendered <strong>{renderCount.current}×</strong>
+      </div>
+      <button
+        onClick={onClick}
+        style={{ marginTop: 8, padding: '6px 12px', background: '#facc15', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}
+      >
+        Click me
+      </button>
+    </div>
+  )
+})
+
+export default function Parent() {
+  const [text, setText]       = useState('')
+  const [count, setCount]     = useState(0)
+  const [memoize, setMemoize] = useState(true)
+  const parentRenders         = useRef(0)
+  parentRenders.current++
+
+  const memoizedClick = useCallback(() => setCount(c => c + 1), [])
+  const plainClick    = () => setCount(c => c + 1)
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: 24, maxWidth: 440 }}>
+      <div style={{ padding: '12px 16px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, marginBottom: 16 }}>
+        <div style={{ fontWeight: 600, fontSize: 14 }}>Parent</div>
+        <div style={{ fontSize: 13, color: '#166534', marginTop: 4 }}>
+          Rendered <strong>{parentRenders.current}×</strong> — count: {count}
+        </div>
+      </div>
+
+      <input
+        value={text}
+        onChange={e => setText(e.target.value)}
+        placeholder="Type here to trigger parent re-renders…"
+        style={{ width: '100%', padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: 8, marginBottom: 12, boxSizing: 'border-box', fontSize: 14 }}
+      />
+
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, cursor: 'pointer', marginBottom: 16 }}>
+        <input type="checkbox" checked={memoize} onChange={e => setMemoize(e.target.checked)} style={{ width: 16, height: 16 }} />
+        Use <code>useCallback</code>
+      </label>
+
+      <ExpensiveChild onClick={memoize ? memoizedClick : plainClick} />
+
+      <p style={{ marginTop: 12, fontSize: 12, color: '#9ca3af' }}>
+        Type in the input (parent re-renders). With useCallback OFF, ExpensiveChild re-renders too even though its logic didn't change.
+      </p>
+    </div>
+  )
+}`} />
+
+<Challenge title="Add useCallback to a search handler">
+Below, `SearchResults` is wrapped in `React.memo`. But it still re-renders on every keystroke.
+
+Fix it by wrapping `handleSearch` in `useCallback`.
+
+```tsx
+function Page() {
+  const [query, setQuery] = useState('')
+  const [filter, setFilter] = useState('all')
+
+  const handleSearch = () => {
+    console.log('searching', query, filter)
+  }
+
+  return (
+    <>
+      <input value={query} onChange={e => setQuery(e.target.value)} />
+      <SearchResults onSearch={handleSearch} />
+    </>
+  )
+}
+```
+</Challenge>
+
+## When NOT to Use useCallback
+
+`useCallback` has a cost: it holds a reference, runs a dependency comparison on every render, and adds code complexity. Only use it when:
+
+1. The function is passed to a child wrapped in `React.memo`
+2. The function is in a dependency array of `useEffect`, `useMemo`, or another `useCallback`
+
+```tsx
+// ❌ Pointless — this function isn't passed down or used in deps
+function Counter() {
+  const [count, setCount] = useState(0)
+
+  // No child component, no deps — useCallback adds overhead for zero benefit
+  const increment = useCallback(() => setCount(c => c + 1), [])
+
+  return <button onClick={increment}>{count}</button>
+}
+
+// ✅ Correct — without useCallback, just inline it
+function Counter() {
+  const [count, setCount] = useState(0)
+  return <button onClick={() => setCount(c => c + 1)}>{count}</button>
+}
+```
+
+## useCallback vs useMemo
+
+```tsx
+// useCallback — memoizes a FUNCTION
+const memoFn = useCallback(() => compute(x), [x])
+
+// useMemo — memoizes the RESULT of a function
+const memoValue = useMemo(() => compute(x), [x])
+
+// They're equivalent:
+useCallback(fn, deps) === useMemo(() => fn, deps)
+```
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- `useCallback` memoizes functions so they have stable references across renders
+- Functions are recreated each render — without `useCallback`, `React.memo` on children is ineffective
+- Only use it when the function is passed to `React.memo` children or used in `useEffect`/`useMemo` deps
+- Use the updater pattern `setCount(c => c + 1)` to remove state from the dependency array
+- `useCallback(fn, deps)` is equivalent to `useMemo(() => fn, deps)`
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "When does useCallback actually improve performance?",
+    answer: "useCallback helps only when two conditions are met: (1) the function is passed as a prop to a child wrapped in React.memo, and (2) the child's render is expensive enough that skipping it matters. If either condition is missing, useCallback adds overhead (closure allocation, dependency comparison) with no benefit. It also helps when the function is used in useEffect/useMemo dependency arrays — without useCallback, a new function reference on every render would cause the effect to re-run continuously.",
+    level: "mid"
+  },
+  {
+    question: "How do you use useCallback with a function that needs current state?",
+    answer: "Use the functional updater form of setState to avoid including state in the dependency array. Instead of setCount(count + 1) which requires count in deps, use setCount(c => c + 1) which reads the current state from React's queue without the closure capturing it. Similarly, use useRef to hold values that need to be fresh but shouldn't cause the callback to recreate: const ref = useRef(value); ref.current = value; then read ref.current inside the callback. This pattern ('ref escape hatch') gives you stable callbacks that still see current values.",
+    level: "senior"
+  }
+]} />

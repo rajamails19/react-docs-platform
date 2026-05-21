@@ -1,0 +1,323 @@
+---
+title: Todo App Project
+description: Build a complete Todo application with React — CRUD operations, filtering, local persistence, and drag-to-reorder.
+category: Projects
+order: 1
+slug: projects/todo-app
+difficulty: beginner
+estimatedTime: 30
+tags: [project, todo, CRUD, useReducer, localStorage, drag and drop]
+lastUpdated: 2024-01-15
+---
+
+# Todo App — Complete Project
+
+The classic todo app is the perfect project to solidify React fundamentals. We'll build it properly: typed state with `useReducer`, filtering, localStorage persistence, and clean component architecture.
+
+## Project Structure
+
+```
+src/
+├── types/todo.ts
+├── hooks/
+│   ├── useTodos.ts       ← all todo logic
+│   └── useLocalStorage.ts
+├── components/
+│   ├── TodoInput.tsx
+│   ├── TodoItem.tsx
+│   ├── TodoList.tsx
+│   └── TodoFilters.tsx
+└── App.tsx
+```
+
+## Types
+
+```tsx
+// types/todo.ts
+export type Priority  = 'low' | 'medium' | 'high'
+export type FilterTab = 'all' | 'active' | 'completed'
+
+export interface Todo {
+  id:          string
+  text:        string
+  completed:   boolean
+  priority:    Priority
+  createdAt:   number
+}
+
+export type TodoAction =
+  | { type: 'add';       payload: { text: string; priority: Priority } }
+  | { type: 'toggle';    payload: string }          // id
+  | { type: 'delete';    payload: string }          // id
+  | { type: 'edit';      payload: { id: string; text: string } }
+  | { type: 'clear_completed' }
+```
+
+## useTodos Hook
+
+```tsx
+// hooks/useTodos.ts
+import { useReducer, useEffect } from 'react'
+
+const STORAGE_KEY = 'todos-v1'
+
+function todosReducer(todos: Todo[], action: TodoAction): Todo[] {
+  switch (action.type) {
+    case 'add':
+      return [...todos, {
+        id:        crypto.randomUUID(),
+        text:      action.payload.text.trim(),
+        completed: false,
+        priority:  action.payload.priority,
+        createdAt: Date.now(),
+      }]
+
+    case 'toggle':
+      return todos.map(t =>
+        t.id === action.payload ? { ...t, completed: !t.completed } : t
+      )
+
+    case 'delete':
+      return todos.filter(t => t.id !== action.payload)
+
+    case 'edit':
+      return todos.map(t =>
+        t.id === action.payload.id ? { ...t, text: action.payload.text } : t
+      )
+
+    case 'clear_completed':
+      return todos.filter(t => !t.completed)
+
+    default:
+      return todos
+  }
+}
+
+function loadTodos(): Todo[] {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY)
+    return stored ? (JSON.parse(stored) as Todo[]) : []
+  } catch {
+    return []
+  }
+}
+
+export function useTodos() {
+  const [todos, dispatch] = useReducer(todosReducer, undefined, loadTodos)
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(todos))
+  }, [todos])
+
+  return { todos, dispatch }
+}
+```
+
+## TodoInput Component
+
+```tsx
+// components/TodoInput.tsx
+import { useState } from 'react'
+import type { Priority, TodoAction } from '../types/todo'
+
+interface TodoInputProps {
+  dispatch: React.Dispatch<TodoAction>
+}
+
+export function TodoInput({ dispatch }: TodoInputProps) {
+  const [text,     setText]     = useState('')
+  const [priority, setPriority] = useState<Priority>('medium')
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!text.trim()) return
+    dispatch({ type: 'add', payload: { text, priority } })
+    setText('')
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="flex gap-2">
+      <input
+        value={text}
+        onChange={e => setText(e.target.value)}
+        placeholder="What needs to be done?"
+        className="flex-1 rounded-lg border px-4 py-2"
+      />
+      <select
+        value={priority}
+        onChange={e => setPriority(e.target.value as Priority)}
+        className="rounded-lg border px-2"
+      >
+        <option value="low">Low</option>
+        <option value="medium">Medium</option>
+        <option value="high">High</option>
+      </select>
+      <button type="submit" className="btn-primary">Add</button>
+    </form>
+  )
+}
+```
+
+## TodoItem Component
+
+```tsx
+// components/TodoItem.tsx
+import { useState } from 'react'
+import type { Todo, TodoAction } from '../types/todo'
+
+const PRIORITY_COLORS: Record<Todo['priority'], string> = {
+  low:    'bg-green-100 text-green-800',
+  medium: 'bg-yellow-100 text-yellow-800',
+  high:   'bg-red-100 text-red-800',
+}
+
+export function TodoItem({ todo, dispatch }: { todo: Todo; dispatch: React.Dispatch<TodoAction> }) {
+  const [isEditing, setIsEditing] = useState(false)
+  const [editText,  setEditText]  = useState(todo.text)
+
+  const handleEdit = () => {
+    if (editText.trim() && editText !== todo.text) {
+      dispatch({ type: 'edit', payload: { id: todo.id, text: editText.trim() } })
+    }
+    setIsEditing(false)
+  }
+
+  return (
+    <div className={`flex items-center gap-3 rounded-lg p-3 ${todo.completed ? 'opacity-60' : ''}`}>
+      <input
+        type="checkbox"
+        checked={todo.completed}
+        onChange={() => dispatch({ type: 'toggle', payload: todo.id })}
+        className="h-5 w-5 cursor-pointer"
+      />
+
+      {isEditing ? (
+        <input
+          value={editText}
+          onChange={e => setEditText(e.target.value)}
+          onBlur={handleEdit}
+          onKeyDown={e => e.key === 'Enter' && handleEdit()}
+          autoFocus
+          className="flex-1 rounded border px-2 py-1"
+        />
+      ) : (
+        <span
+          onDoubleClick={() => setIsEditing(true)}
+          className={`flex-1 cursor-pointer ${todo.completed ? 'line-through' : ''}`}
+        >
+          {todo.text}
+        </span>
+      )}
+
+      <span className={`rounded px-2 py-0.5 text-xs font-medium ${PRIORITY_COLORS[todo.priority]}`}>
+        {todo.priority}
+      </span>
+
+      <button
+        onClick={() => dispatch({ type: 'delete', payload: todo.id })}
+        className="text-gray-400 hover:text-red-500"
+        aria-label="Delete todo"
+      >
+        ×
+      </button>
+    </div>
+  )
+}
+```
+
+## App Component
+
+```tsx
+// App.tsx
+import { useState, useMemo } from 'react'
+import { useTodos } from './hooks/useTodos'
+import { TodoInput } from './components/TodoInput'
+import { TodoItem } from './components/TodoItem'
+import type { FilterTab } from './types/todo'
+
+export default function App() {
+  const { todos, dispatch } = useTodos()
+  const [filter, setFilter] = useState<FilterTab>('all')
+
+  const filtered = useMemo(() => {
+    switch (filter) {
+      case 'active':    return todos.filter(t => !t.completed)
+      case 'completed': return todos.filter(t => t.completed)
+      default:          return todos
+    }
+  }, [todos, filter])
+
+  const completedCount = todos.filter(t => t.completed).length
+  const activeCount    = todos.length - completedCount
+
+  return (
+    <div className="mx-auto max-w-lg p-6">
+      <h1 className="mb-6 text-3xl font-bold">Todos</h1>
+
+      <TodoInput dispatch={dispatch} />
+
+      <div className="mt-4 flex gap-2">
+        {(['all', 'active', 'completed'] as FilterTab[]).map(tab => (
+          <button
+            key={tab}
+            onClick={() => setFilter(tab)}
+            className={filter === tab ? 'btn-active' : 'btn-ghost'}
+          >
+            {tab} {tab === 'active' ? `(${activeCount})` : ''}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-4 space-y-2">
+        {filtered.map(todo => (
+          <TodoItem key={todo.id} todo={todo} dispatch={dispatch} />
+        ))}
+      </div>
+
+      {completedCount > 0 && (
+        <button
+          onClick={() => dispatch({ type: 'clear_completed' })}
+          className="mt-4 text-sm text-gray-500 hover:text-red-500"
+        >
+          Clear {completedCount} completed
+        </button>
+      )}
+    </div>
+  )
+}
+```
+
+## Key Patterns Used
+
+<ComparisonTable
+  columns={[
+    { key: 'pattern', label: 'Pattern', highlight: true },
+    { key: 'why', label: 'Why used here' },
+  ]}
+  rows={[
+    { pattern: 'useReducer', why: 'Multiple related state transitions — cleaner than 3+ useState' },
+    { pattern: 'Discriminated union actions', why: 'TypeScript narrows action type in switch cases' },
+    { pattern: 'useMemo for filtered list', why: 'Avoid filtering full array on every render' },
+    { pattern: 'localStorage persistence', why: 'Survive page refresh without a backend' },
+    { pattern: 'Lazy initializer', why: 'Read localStorage once at init, not every render' },
+    { pattern: 'crypto.randomUUID()', why: 'Stable, unique IDs — not array index' },
+  ]}
+/>
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- `useReducer` with typed discriminated union actions — all todo logic in one place
+- Lazy initializer `useReducer(reducer, undefined, loadTodos)` — read localStorage once
+- `useMemo` for derived data (filtered list) — don't filter in JSX, compute once
+- Component breakdown: one responsibility per component, dispatch flows down
+- Double-click to edit pattern with `isEditing` local state inside TodoItem
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "Why use useReducer over multiple useState calls for this todo app?",
+    answer: "The todo operations (add, toggle, delete, edit, clear) are related state transitions that follow a predictable pattern. With useState you'd need separate handlers for each operation, and complex operations like 'clear completed' would need to read multiple state values. useReducer centralizes all transitions in one pure function — easy to test (it's just reducer(state, action)), easy to add new operations (add a case to the switch), and the action types document what can happen. The discriminated union ensures TypeScript catches typos in action types at compile time.",
+    level: "junior"
+  }
+]} />

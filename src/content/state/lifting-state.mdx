@@ -1,0 +1,408 @@
+---
+title: Lifting State Up
+description: Learn how to share state between sibling components by moving it to their closest common ancestor, and when to reach for Context instead.
+category: State
+order: 2
+slug: state/lifting-state
+difficulty: intermediate
+estimatedTime: 25
+tags: [lifting state, shared state, sibling components, props, callbacks, common ancestor, Context]
+lastUpdated: "2024-01-15"
+---
+
+# Lifting State Up
+
+"Lifting state up" is the canonical React pattern for sharing data between components that do not have a direct parent-child relationship. When two siblings need access to the same piece of state, the answer is to move that state to their **lowest common ancestor** and pass it down via props.
+
+This is not a library feature — it is a fundamental design principle of React's unidirectional data flow.
+
+## Why Lifting State Is Needed
+
+Imagine two sibling components: a search input and a results list. Each is its own component. The search input needs to update the query, and the results list needs to read the query to filter items. Neither component is the parent of the other, so they cannot share state directly.
+
+```tsx
+// ❌ This does NOT work — components cannot reach each other's state
+function SearchInput() {
+  const [query, setQuery] = useState('')  // trapped inside SearchInput
+  return <input value={query} onChange={e => setQuery(e.target.value)} />
+}
+
+function ResultsList() {
+  // query is undefined here — SearchInput's state is invisible to siblings
+  return <ul>{/* can't access query */}</ul>
+}
+
+function SearchPage() {
+  return (
+    <>
+      <SearchInput />
+      <ResultsList />   {/* can't get query from SearchInput */}
+    </>
+  )
+}
+```
+
+The fix: move state to `SearchPage`, which is the lowest common ancestor of both siblings.
+
+## The Pattern
+
+<MermaidDiagram chart={`
+graph TD
+  A[SearchPage<br/>state: query, setQuery] -->|query prop| B[SearchInput]
+  A -->|query prop| C[ResultsList]
+  B -->|calls onQueryChange| A
+  A -->|query updated → re-render| C
+
+  style A fill:#dbeafe,stroke:#3b82f6
+  style B fill:#dcfce7,stroke:#22c55e
+  style C fill:#dcfce7,stroke:#22c55e
+`} caption="State lives in the common ancestor; data flows down, events flow up" />
+
+The three steps to lift state:
+
+1. **Remove** the state from child components that need to share it.
+2. **Add** that state to the lowest common ancestor.
+3. **Pass** the state value down as props, and pass the setter as a callback prop.
+
+```tsx
+// ✅ State lifted to the common ancestor
+function SearchPage() {
+  const [query, setQuery] = useState('')
+
+  const allItems = ['React', 'Redux', 'TypeScript', 'Next.js', 'Zustand']
+  const results  = allItems.filter(item =>
+    item.toLowerCase().includes(query.toLowerCase())
+  )
+
+  return (
+    <div>
+      {/* Pass value down and setter as a callback */}
+      <SearchInput query={query} onQueryChange={setQuery} />
+      <ResultsList items={results} />
+    </div>
+  )
+}
+
+function SearchInput({
+  query,
+  onQueryChange,
+}: {
+  query: string
+  onQueryChange: (q: string) => void
+}) {
+  return (
+    <input
+      value={query}
+      onChange={e => onQueryChange(e.target.value)}
+      placeholder="Search..."
+    />
+  )
+}
+
+function ResultsList({ items }: { items: string[] }) {
+  if (items.length === 0) return <p>No results found.</p>
+  return (
+    <ul>
+      {items.map(item => <li key={item}>{item}</li>)}
+    </ul>
+  )
+}
+```
+
+<Callout type="info">
+The naming convention for callback props is `on` + what happened (`onQueryChange`, `onSelect`, `onClose`). The handler in the parent is named `handle` + the same event (`handleQueryChange`, `handleSelect`, `handleClose`). This makes the data flow easy to trace at a glance.
+</Callout>
+
+## Practical Example: Temperature Converter
+
+The classic React lifting-state example. Two inputs (Celsius and Fahrenheit) must always stay in sync — change one, the other updates.
+
+<LiveEditor code={`import { useState } from 'react'
+
+function toCelsius(f) {
+  return ((f - 32) * 5) / 9
+}
+
+function toFahrenheit(c) {
+  return (c * 9) / 5 + 32
+}
+
+function round(value) {
+  return Math.round(value * 100) / 100
+}
+
+function TemperatureInput({ scale, value, onChange }) {
+  const label = scale === 'c' ? 'Celsius' : 'Fahrenheit'
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <label style={{ display: 'block', marginBottom: 6, fontWeight: 600, color: '#374151' }}>
+        {label}
+      </label>
+      <input
+        type="number"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        style={{
+          padding: '8px 12px', fontSize: 16, borderRadius: 8,
+          border: '2px solid #e5e7eb', width: '100%', boxSizing: 'border-box'
+        }}
+      />
+    </div>
+  )
+}
+
+function BoilingPoint({ celsius }) {
+  const isBoiling = celsius >= 100
+  return (
+    <p style={{
+      padding: '12px 16px', borderRadius: 8, fontWeight: 600,
+      background: isBoiling ? '#fef2f2' : '#f0fdf4',
+      color: isBoiling ? '#dc2626' : '#16a34a'
+    }}>
+      {isBoiling ? '🌡️ Water would boil!' : '❄️ Water would not boil.'}
+    </p>
+  )
+}
+
+export default function TemperatureConverter() {
+  // Lifted state: one source of truth
+  const [celsius, setCelsius] = useState('')
+
+  const handleCelsiusChange = (value) => {
+    setCelsius(value)
+  }
+
+  const handleFahrenheitChange = (value) => {
+    // Convert back to celsius and store
+    const c = value === '' ? '' : round(toCelsius(parseFloat(value)))
+    setCelsius(String(c))
+  }
+
+  const fahrenheit = celsius === '' ? '' : round(toFahrenheit(parseFloat(celsius)))
+
+  return (
+    <div style={{ maxWidth: 360, margin: '20px auto', padding: 24, fontFamily: 'sans-serif', border: '1px solid #e5e7eb', borderRadius: 12 }}>
+      <h2 style={{ margin: '0 0 20px', color: '#111827' }}>Temperature Converter</h2>
+      <TemperatureInput scale="c" value={celsius} onChange={handleCelsiusChange} />
+      <TemperatureInput scale="f" value={fahrenheit} onChange={handleFahrenheitChange} />
+      {celsius !== '' && <BoilingPoint celsius={parseFloat(celsius)} />}
+    </div>
+  )
+}`} />
+
+Notice how a single piece of state (`celsius`) drives both inputs. There is exactly one source of truth, and conversion happens in render — not in separate state variables.
+
+## Passing Callbacks Up the Tree
+
+When a child component needs to inform its parent of an action, the parent passes a callback function as a prop. This is the only way data flows "up" in React.
+
+```tsx
+// Pattern: parent defines what happens, child calls when it happens
+function ShoppingCart() {
+  const [items, setItems] = useState<CartItem[]>([])
+
+  const handleAddItem = (item: CartItem) => {
+    setItems(prev => [...prev, item])
+  }
+
+  const handleRemoveItem = (id: string) => {
+    setItems(prev => prev.filter(i => i.id !== id))
+  }
+
+  return (
+    <div>
+      <ProductGrid onAddToCart={handleAddItem} />
+      <CartSummary items={items} onRemove={handleRemoveItem} />
+    </div>
+  )
+}
+
+function ProductGrid({ onAddToCart }: { onAddToCart: (item: CartItem) => void }) {
+  const products = useProducts()
+  return (
+    <div>
+      {products.map(p => (
+        <ProductCard key={p.id} product={p} onAddToCart={onAddToCart} />
+      ))}
+    </div>
+  )
+}
+```
+
+<Callout type="tip">
+Keep callback names descriptive and action-oriented. `onAddToCart` is better than `onClick` because it describes the domain event, not the DOM event. This makes props easy to understand without reading the child component's implementation.
+</Callout>
+
+## When Lifting State Becomes Cumbersome
+
+Lifting state works well when the shared state is one or two levels up. It becomes painful when:
+
+- **Prop drilling** — you must pass state through 3+ levels of intermediary components that do not use it themselves.
+- **Many unrelated components** need the same data (e.g., current user, theme, locale).
+- **State is frequently updated** and passing callbacks through many layers is verbose.
+
+```tsx
+// The prop drilling problem — Button has nothing to do with theme,
+// but it must accept and forward it so ThemeIcon can use it
+function App() {
+  const [theme, setTheme] = useState('light')
+  return <Layout theme={theme} setTheme={setTheme} />
+}
+
+function Layout({ theme, setTheme }) {
+  return <Header theme={theme} setTheme={setTheme} />
+}
+
+function Header({ theme, setTheme }) {
+  return <Nav theme={theme} setTheme={setTheme} />
+}
+
+function Nav({ theme, setTheme }) {
+  return <ThemeToggle theme={theme} setTheme={setTheme} />
+}
+
+// ✅ Context is the right tool here — see the Context API tutorial
+```
+
+<MermaidDiagram chart={`
+graph TD
+  A[App<br/>theme state] -->|theme, setTheme| B[Layout]
+  B -->|theme, setTheme| C[Header]
+  C -->|theme, setTheme| D[Nav]
+  D -->|theme, setTheme| E[ThemeToggle ✓]
+  B -.->|doesn't use theme| B
+  C -.->|doesn't use theme| C
+  D -.->|doesn't use theme| D
+
+  style E fill:#dcfce7,stroke:#22c55e
+  style A fill:#dbeafe,stroke:#3b82f6
+`} caption="Prop drilling: intermediary components forced to carry props they don't use" />
+
+When you reach this point, **React Context** is the appropriate next step. Context lets you broadcast state to any component in the tree without threading it through every level.
+
+## Anti-Patterns to Avoid
+
+### Over-Lifting
+
+Lifting state too high puts it farther from where it is used, making the codebase harder to understand and causing unnecessary re-renders of parent and unrelated sibling components.
+
+```tsx
+// ❌ tooltip state does not need to live in App
+function App() {
+  const [tooltipVisible, setTooltipVisible] = useState(false)
+  return <ProductCard tooltipVisible={tooltipVisible} setTooltipVisible={setTooltipVisible} />
+}
+
+// ✅ tooltip state belongs inside the component that owns it
+function ProductCard() {
+  const [tooltipVisible, setTooltipVisible] = useState(false)
+  return (
+    <div>
+      <button onMouseEnter={() => setTooltipVisible(true)} onMouseLeave={() => setTooltipVisible(false)}>
+        Hover me
+      </button>
+      {tooltipVisible && <Tooltip />}
+    </div>
+  )
+}
+```
+
+### Unnecessary Lifting
+
+Do not lift state just because it is "possible." Only lift when two or more components genuinely need to share the same piece of data.
+
+```tsx
+// ❌ Lifted for no reason — nothing else uses inputValue
+function SearchPage() {
+  const [inputValue, setInputValue] = useState('')
+
+  return (
+    <div>
+      <SearchInput value={inputValue} onChange={setInputValue} />
+      {/* ResultsList doesn't use inputValue — only SearchInput does */}
+      <ResultsList />
+    </div>
+  )
+}
+
+// ✅ State belongs in SearchInput; use a callback only for the final submitted query
+function SearchPage() {
+  const [submittedQuery, setSubmittedQuery] = useState('')
+
+  return (
+    <div>
+      <SearchInput onSearch={setSubmittedQuery} />
+      <ResultsList query={submittedQuery} />
+    </div>
+  )
+}
+```
+
+### Duplicating State Instead of Lifting
+
+When two components need the same data, the wrong solution is to give each component its own copy of that state and try to keep them in sync manually.
+
+```tsx
+// ❌ Two sources of truth will inevitably drift apart
+function ProductPage() {
+  return (
+    <>
+      <FeaturedProduct />   {/* has its own selectedId state */}
+      <RelatedProducts />   {/* has its own selectedId state — different! */}
+    </>
+  )
+}
+
+// ✅ One source of truth, lifted to the common ancestor
+function ProductPage() {
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  return (
+    <>
+      <FeaturedProduct selectedId={selectedId} onSelect={setSelectedId} />
+      <RelatedProducts selectedId={selectedId} onSelect={setSelectedId} />
+    </>
+  )
+}
+```
+
+## Decision Guide
+
+<MermaidDiagram chart={`
+flowchart TD
+  A[Do two+ components need the same data?] -- No --> B[Keep state local to the component that owns it]
+  A -- Yes --> C[Who is their lowest common ancestor?]
+  C -- One or two levels up --> D[Lift state to that ancestor]
+  C -- Many levels up / many unrelated consumers --> E[Consider React Context or a state manager]
+  D --> F[Pass value as prop, setter as callback]
+
+  style B fill:#dcfce7,stroke:#22c55e
+  style D fill:#dbeafe,stroke:#3b82f6
+  style E fill:#fef3c7,stroke:#f59e0b
+`} caption="Deciding whether and how far to lift state" />
+
+## Summary
+
+- Lift state to the **lowest common ancestor** of all components that need it.
+- Pass the value **down** as a prop, and the setter **up** as a callback prop.
+- Name callback props with `on` + event (`onSelect`, `onClose`) and handlers with `handle` + event.
+- When lifting becomes prop drilling (3+ levels), reach for **React Context**.
+- Never duplicate shared state in multiple components — there should be exactly one source of truth.
+
+<InterviewQA questions={[
+  {
+    question: "What does 'lifting state up' mean and when should you do it?",
+    answer: "Lifting state up means moving a piece of state from a child component to the nearest ancestor that contains all components that need that state. You should do it when two or more sibling (or cousin) components need to read or modify the same piece of data. By placing state at the common ancestor, you create a single source of truth and share it via props (value down, callback up).",
+    level: "intermediate"
+  },
+  {
+    question: "What is prop drilling and how does lifting state relate to it?",
+    answer: "Prop drilling is the practice of passing props through many intermediate components that do not themselves use those props — they only forward them deeper into the tree. Lifting state can cause prop drilling when the common ancestor is several levels above the components that need the data. The fix for deep prop drilling is usually React Context or a client-side state management library, which let components subscribe to state without threading it through every intermediate component.",
+    level: "intermediate"
+  },
+  {
+    question: "What is the naming convention for callback props when lifting state, and why does it matter?",
+    answer: "The convention is to name callback props with 'on' + the domain event (onSelect, onQueryChange, onClose) and the corresponding handler in the parent with 'handle' + the same event (handleSelect, handleQueryChange, handleClose). This convention matters because it clearly separates the interface from the implementation: the child declares what events it emits, the parent decides what to do with them. It also makes the data flow obvious when reading JSX.",
+    level: "beginner"
+  }
+]} />

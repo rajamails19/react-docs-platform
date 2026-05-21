@@ -1,0 +1,465 @@
+---
+title: Keys in React Lists
+description: Understand why React needs keys, how reconciliation works, when index keys break your app, and advanced patterns like using keys to reset component state.
+category: Lists & Keys
+order: 2
+slug: lists/keys
+difficulty: intermediate
+estimatedTime: 20
+tags: [keys, reconciliation, lists, performance, react internals]
+lastUpdated: "2024-01-15"
+---
+
+# Keys in React Lists
+
+Keys are one of React's most misunderstood concepts. They look like a trivial requirement — "just add a key" — but they directly control how React updates the DOM. Using the wrong key can cause silent data corruption, broken animations, and incorrect component state.
+
+## What Keys Are and Why React Needs Them
+
+React re-renders components when state or props change. When it re-renders a list, it must figure out which items changed, which were added, and which were removed — then update the DOM as cheaply as possible.
+
+Without any hints, React would compare the old list to the new list *by position*: old item 0 maps to new item 0, old item 1 maps to new item 1, and so on. This works when you only add items to the end, but fails catastrophically when you insert, delete, or reorder items.
+
+**Keys are React's hint about identity.** A key tells React "this element is the same logical item as the element with the same key in the previous render, regardless of its current position."
+
+```tsx
+// Without keys — React compares by position only
+<li>Alice</li>   // position 0
+<li>Bob</li>     // position 1
+<li>Charlie</li> // position 2
+
+// After deleting Alice:
+<li>Bob</li>     // React sees position 0 changed "Alice" → "Bob" (updates text)
+<li>Charlie</li> // React sees position 1 changed "Bob" → "Charlie" (updates text)
+                 // React removes position 2 (was Charlie) — 2 DOM updates instead of 1!
+
+// With keys — React matches by identity
+<li key="alice">Alice</li>
+<li key="bob">Bob</li>
+<li key="charlie">Charlie</li>
+
+// After deleting Alice:
+<li key="bob">Bob</li>     // same key → same element, no update needed
+<li key="charlie">Charlie</li> // same key → same element, no update needed
+                               // React removes key="alice" — 1 DOM update!
+```
+
+## How Reconciliation Works
+
+<MermaidDiagram chart={`sequenceDiagram
+    participant S as State Change
+    participant R as React Reconciler
+    participant V as Virtual DOM (new)
+    participant D as Real DOM
+
+    S->>R: setState called
+    R->>V: Build new virtual DOM tree
+    R->>R: Diff old tree vs new tree
+    Note over R: Match elements by key
+    R->>D: Apply minimal set of DOM mutations
+    Note over D: Only changed nodes updated`} />
+
+During reconciliation React:
+
+1. Builds a new virtual DOM tree from the latest render output.
+2. Compares it to the previous tree (the "diff" step).
+3. For list children, matches old elements to new elements **by key**.
+4. Applies only the DOM mutations needed to make the real DOM match the new virtual DOM.
+
+Without stable keys, step 3 falls back to positional matching, which causes unnecessary updates and incorrect state association.
+
+## Rules for Keys
+
+<Callout type="info">
+**The three rules of keys:**
+1. Keys must be **unique among siblings** (not globally unique — siblings only).
+2. Keys must be **stable** across renders (the same item always gets the same key).
+3. Keys must be **consistent** (if an item's key changes, React treats it as a deletion + insertion).
+</Callout>
+
+```tsx
+// ✅ Unique among siblings — same key can appear in different lists
+function App() {
+  return (
+    <div>
+      <ul>
+        {categoryA.map(item => <li key={item.id}>{item.name}</li>)}
+      </ul>
+      <ul>
+        {categoryB.map(item => <li key={item.id}>{item.name}</li>)}
+        {/* item.id === 1 can exist in both lists — different sibling groups */}
+      </ul>
+    </div>
+  )
+}
+
+// ❌ Not unique among siblings
+['cat', 'cat', 'dog'].map(animal => <li key={animal}>{animal}</li>)
+// 'cat' appears twice → React warning + undefined behavior
+```
+
+## Index as Key: When It's OK vs When It Breaks
+
+Using the array index as a key (`key={index}`) is tempting because it's always available. It works correctly for **static, read-only lists** where:
+
+- Items are never reordered.
+- Items are never filtered (which changes positions).
+- Items are never inserted in the middle or deleted from anywhere except the end.
+
+```tsx
+// ✅ Index key is fine — static breadcrumb trail, order never changes
+function Breadcrumbs({ crumbs }: { crumbs: string[] }) {
+  return (
+    <nav>
+      {crumbs.map((crumb, index) => (
+        <span key={index}>{crumb}</span>
+      ))}
+    </nav>
+  )
+}
+
+// ✅ Index key is fine — error message list rendered fresh each validation
+function ErrorList({ errors }: { errors: string[] }) {
+  return (
+    <ul role="alert">
+      {errors.map((error, index) => (
+        <li key={index}>{error}</li>
+      ))}
+    </ul>
+  )
+}
+```
+
+## The Index-Key Bug Demonstrated
+
+Here is the classic bug. A list of text inputs, each with local state. When you use index as key and insert an item at the top, the input *state* (what the user typed) stays attached to the old index, not the old item:
+
+```tsx
+// ❌ Index key — inserting at top causes state to follow position, not item
+function BuggyInputList() {
+  const [items, setItems] = useState([
+    { id: 1, label: 'First item' },
+    { id: 2, label: 'Second item' },
+  ])
+
+  const addAtTop = () => {
+    setItems(prev => [{ id: Date.now(), label: 'New item' }, ...prev])
+  }
+
+  return (
+    <div>
+      <button onClick={addAtTop}>Add at top</button>
+      <ul>
+        {items.map((item, index) => (
+          <li key={index}>           {/* ❌ index as key */}
+            {item.label}
+            <input placeholder="Type something…" />
+            {/* If user typed in "First item"'s input, that text will
+                appear in "New item"'s input after insertion! */}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+// ✅ Stable ID key — state correctly follows the item
+function CorrectInputList() {
+  const [items, setItems] = useState([
+    { id: 1, label: 'First item' },
+    { id: 2, label: 'Second item' },
+  ])
+
+  const addAtTop = () => {
+    setItems(prev => [{ id: Date.now(), label: 'New item' }, ...prev])
+  }
+
+  return (
+    <div>
+      <button onClick={addAtTop}>Add at top</button>
+      <ul>
+        {items.map(item => (
+          <li key={item.id}>         {/* ✅ stable ID as key */}
+            {item.label}
+            <input placeholder="Type something…" />
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+```
+
+<Callout type="danger">
+The index-key bug is especially nasty because it only appears when items are *reordered, filtered, or inserted in the middle*. If you test with a static list, everything looks fine — the bug surfaces only when users interact with the list. Always use a stable, unique ID for lists that can change.
+</Callout>
+
+## Using Database IDs
+
+The best key source for server data is the database primary key, which is already unique and stable:
+
+```tsx
+interface Post {
+  id: string   // UUID from server
+  title: string
+  author: string
+}
+
+function PostList({ posts }: { posts: Post[] }) {
+  return (
+    <ul>
+      {posts.map(post => (
+        <li key={post.id}>
+          <h3>{post.title}</h3>
+          <p>by {post.author}</p>
+        </li>
+      ))}
+    </ul>
+  )
+}
+```
+
+## Generating Keys for Client-Created Items
+
+When the user creates items on the client (before they're saved to a server and assigned a DB id), you need to generate a stable key yourself.
+
+```tsx
+// ✅ crypto.randomUUID() — built into modern browsers and Node 19+
+function TodoApp() {
+  const [todos, setTodos] = useState<{ id: string; text: string }[]>([])
+
+  const addTodo = (text: string) => {
+    setTodos(prev => [
+      ...prev,
+      { id: crypto.randomUUID(), text },
+    ])
+  }
+
+  return (
+    <ul>
+      {todos.map(todo => (
+        <li key={todo.id}>{todo.text}</li>
+      ))}
+    </ul>
+  )
+}
+```
+
+<Callout type="warning">
+**Never** generate a key with `Math.random()` or `Date.now()` inside the render function. These produce a different value on every render, so React treats every item as a new element on every re-render — mounting and unmounting all of them, destroying all their state and causing massive performance overhead.
+
+Generate the ID once when the item is *created* (inside an event handler), not during rendering.
+</Callout>
+
+```tsx
+// ❌ Generated during render — new key every render
+{items.map(item => (
+  <li key={Math.random()}>{item.text}</li>
+))}
+
+// ✅ Generated at creation time, stored in state
+const addItem = (text: string) => {
+  setItems(prev => [...prev, { id: crypto.randomUUID(), text }])
+}
+```
+
+## The `key` Prop Is Not Accessible as a Prop
+
+`key` is a reserved React concept, not a real prop. If you try to read `props.key` inside a component, you'll always get `undefined`. If you need the id inside the child component, pass it as a separate prop:
+
+```tsx
+function Item({ id, text }: { id: string; text: string }) {
+  // props.key is always undefined — key is consumed by React, not passed down
+  console.log(id)    // ✅ works — passed as a real prop
+  return <li>{text}</li>
+}
+
+// Usage
+{items.map(item => (
+  <Item
+    key={item.id}   // React consumes this for reconciliation
+    id={item.id}    // pass it again as a real prop if the component needs it
+    text={item.text}
+  />
+))}
+```
+
+## Using `key` to Intentionally Reset Component State
+
+This is an advanced but very useful React pattern. When you change a component's `key`, React **unmounts the old component and mounts a brand-new one** — completely resetting all state and refs. This is useful for resetting a form when the user switches between records:
+
+```tsx
+interface UserFormProps {
+  userId: string
+}
+
+function UserForm({ userId }: UserFormProps) {
+  // Imagine this has complex local form state: draft edits, validation errors, etc.
+  const [name, setName]   = useState('')
+  const [email, setEmail] = useState('')
+
+  return (
+    <form>
+      <input value={name}  onChange={e => setName(e.target.value)}  placeholder="Name" />
+      <input value={email} onChange={e => setEmail(e.target.value)} placeholder="Email" />
+    </form>
+  )
+}
+
+function UserEditor() {
+  const [selectedUserId, setSelectedUserId] = useState('user-1')
+
+  return (
+    <div>
+      <button onClick={() => setSelectedUserId('user-1')}>Edit User 1</button>
+      <button onClick={() => setSelectedUserId('user-2')}>Edit User 2</button>
+
+      {/* key change forces complete remount — all form state resets cleanly */}
+      <UserForm key={selectedUserId} userId={selectedUserId} />
+    </div>
+  )
+}
+```
+
+Without the `key`, switching from User 1 to User 2 would keep the old draft text in the inputs. With the `key` trick, React discards the old component instance entirely and starts fresh.
+
+<Callout type="tip">
+The key-reset pattern is simpler than calling a `resetForm()` function or adding a `useEffect` to reset state when `userId` changes. It is the idiomatic React solution for "I want a fresh component when this identity changes."
+</Callout>
+
+## Keys in Fragments
+
+When you need multiple sibling elements per list item without a wrapper DOM element, use `<Fragment>` with a key (the shorthand `<>` syntax does not support keys):
+
+```tsx
+import { Fragment } from 'react'
+
+interface TableRow {
+  id: number
+  label: string
+  value: string
+  description: string
+}
+
+function DefinitionTable({ rows }: { rows: TableRow[] }) {
+  return (
+    <dl>
+      {rows.map(row => (
+        // Must use <Fragment> here — <> does not accept key prop
+        <Fragment key={row.id}>
+          <dt>{row.label}</dt>
+          <dd>{row.value}</dd>
+          <dd className="description">{row.description}</dd>
+        </Fragment>
+      ))}
+    </dl>
+  )
+}
+```
+
+## Comparison: Key Strategies
+
+<ComparisonTable
+  columns={['Strategy', 'Stable?', 'Unique?', 'Best for', 'Avoid when']}
+  rows={[
+    ['Database ID', 'Yes', 'Yes', 'Server data with primary keys', 'Client-only items with no ID yet'],
+    ['crypto.randomUUID()', 'Yes (if stored in state)', 'Yes', 'Client-created items', 'Generating during render (new ID every render)'],
+    ['Array index', 'No (position-based)', 'Yes', 'Static, never-reordered lists', 'Reorderable, filterable, or insertable lists'],
+    ['Math.random()', 'No', 'Yes', 'Nothing — avoid entirely', 'All list rendering'],
+    ['Item content/slug', 'Yes', 'Only if values are unique', 'Navigation links, static menus', 'Lists with potential duplicate values'],
+  ]}
+/>
+
+## Live Example: Demonstrating the Index-Key Bug
+
+<LiveEditor code={`import { useState } from 'react'
+
+function InputItem({ label }) {
+  return (
+    <li style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+      <strong style={{ width: 120 }}>{label}</strong>
+      <input
+        placeholder="Type something here…"
+        style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #ccc' }}
+      />
+    </li>
+  )
+}
+
+export default function App() {
+  const [items, setItems] = useState([
+    { id: 1, label: 'First item' },
+    { id: 2, label: 'Second item' },
+    { id: 3, label: 'Third item' },
+  ])
+  const [useIndexKey, setUseIndexKey] = useState(false)
+
+  const addAtTop = () => {
+    setItems(prev => [
+      { id: Date.now(), label: 'New item (inserted)' },
+      ...prev,
+    ])
+  }
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: 24 }}>
+      <h2>Key Demo</h2>
+      <p>
+        1. Type something in one of the inputs below.<br />
+        2. Toggle the key strategy.<br />
+        3. Click "Insert at top" and watch what happens to your typed text.
+      </p>
+
+      <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+        <button onClick={addAtTop}
+          style={{ padding: '6px 14px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>
+          Insert at top
+        </button>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <input
+            type="checkbox"
+            checked={useIndexKey}
+            onChange={e => setUseIndexKey(e.target.checked)}
+          />
+          Use index as key (buggy)
+        </label>
+      </div>
+
+      <p style={{ fontWeight: 'bold', color: useIndexKey ? '#dc2626' : '#16a34a' }}>
+        Current strategy: {useIndexKey ? 'index key (broken)' : 'ID key (correct)'}
+      </p>
+
+      <ul style={{ listStyle: 'none', padding: 0 }}>
+        {items.map((item, index) => (
+          <InputItem
+            key={useIndexKey ? index : item.id}
+            label={item.label}
+          />
+        ))}
+      </ul>
+    </div>
+  )
+}`} />
+
+<InterviewQA questions={[
+  {
+    question: "What is the purpose of the key prop in React lists?",
+    answer: "The key prop gives React a stable identity for each element in a list across renders. During reconciliation, React uses keys to match elements from the previous render to elements in the new render. Without keys, React falls back to positional matching, which causes unnecessary DOM updates and incorrect state association when items are inserted, removed, or reordered.",
+    level: "beginner"
+  },
+  {
+    question: "When is it acceptable to use the array index as a key, and when does it cause bugs?",
+    answer: "Index keys are acceptable for static lists where items are never reordered, filtered, or inserted/deleted in the middle — for example, a fixed breadcrumb trail or a static navigation menu. They cause bugs in dynamic lists because the index is tied to position, not identity. If you insert an item at the top, every subsequent item's key changes — React thinks it's dealing with different elements at each position and may incorrectly associate component state (like input values) with the wrong items.",
+    level: "intermediate"
+  },
+  {
+    question: "How can you use the key prop to reset a component's state without lifting state up or using useEffect?",
+    answer: "When React sees a component whose key has changed, it unmounts the old instance and mounts a brand-new one, discarding all local state and refs. By setting key={selectedItemId} on a form or detail component, you guarantee that switching to a different item completely resets the component — no resetForm() function, no useEffect cleanup needed. This is the idiomatic React pattern for 'give me a fresh component when the identity changes.'",
+    level: "advanced"
+  },
+  {
+    question: "Why can't you access props.key inside a child component?",
+    answer: "The key prop is a React-internal concept used exclusively by the reconciler for element matching. React explicitly strips it from the props object before passing props to the component function. If you read props.key you'll always get undefined. If the component needs the same value (e.g. an ID), you must pass it separately as a normal named prop like id={item.id}.",
+    level: "intermediate"
+  }
+]} />

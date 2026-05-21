@@ -1,0 +1,405 @@
+---
+title: Derived State
+description: Learn how to compute values from existing state and props instead of storing redundant data, and when useMemo is worth the overhead.
+category: State
+order: 3
+slug: state/derived-state
+difficulty: intermediate
+estimatedTime: 22
+tags: [derived state, useMemo, single source of truth, computed values, getDerivedStateFromProps, performance]
+lastUpdated: "2024-01-15"
+---
+
+# Derived State
+
+Derived state is any value that can be **computed from existing state or props**. The core principle is simple: if you can calculate a value, do not store it separately in state. Storing it creates two sources of truth that will eventually disagree.
+
+This is one of the most impactful things you can learn for writing maintainable React applications.
+
+## The Problem: Duplicating Data
+
+Suppose you are building a shopping cart. You have a list of items (each with a price and quantity) and you want to show the total price.
+
+```tsx
+// ❌ Total is stored in state separately from items
+function Cart() {
+  const [items, setItems]   = useState(initialItems)
+  const [total, setTotal]   = useState(0)          // ← redundant!
+
+  const addItem = (newItem) => {
+    const updatedItems = [...items, newItem]
+    setItems(updatedItems)
+    // You MUST remember to update total every time items change
+    setTotal(updatedItems.reduce((sum, i) => sum + i.price * i.qty, 0))
+  }
+
+  const removeItem = (id) => {
+    const updatedItems = items.filter(i => i.id !== id)
+    setItems(updatedItems)
+    setTotal(updatedItems.reduce((sum, i) => sum + i.price * i.qty, 0))  // easy to forget!
+  }
+
+  const updateQty = (id, qty) => {
+    const updatedItems = items.map(i => i.id === id ? { ...i, qty } : i)
+    setItems(updatedItems)
+    // If you forget this line, total is wrong
+    setTotal(updatedItems.reduce((sum, i) => sum + i.price * i.qty, 0))
+  }
+}
+```
+
+Every mutation of `items` must also update `total`. Miss one — or add a new mutation path — and the UI shows the wrong total. This is a **synchronization bug** waiting to happen.
+
+## The Fix: Compute in Render
+
+```tsx
+// ✅ Total is derived — always correct, zero maintenance
+function Cart() {
+  const [items, setItems] = useState(initialItems)
+
+  // Computed on every render from the single source of truth
+  const total = items.reduce((sum, i) => sum + i.price * i.qty, 0)
+
+  const addItem    = (newItem) => setItems(prev => [...prev, newItem])
+  const removeItem = (id)      => setItems(prev => prev.filter(i => i.id !== id))
+  const updateQty  = (id, qty) => setItems(prev => prev.map(i => i.id === id ? { ...i, qty } : i))
+}
+```
+
+`total` is always in sync because it is recomputed fresh every render from the same data it is based on. No synchronization logic, no bugs.
+
+## The Single Source of Truth Principle
+
+React's data model is built on the idea that each piece of data has exactly **one authoritative location**. When the same information exists in multiple places (two state variables, state + a ref, state + localStorage without reconciliation), they will eventually drift apart.
+
+<MermaidDiagram chart={`
+graph LR
+  subgraph Bad["❌ Two sources of truth"]
+    A1[items state] 
+    A2[total state]
+    A1 -.->|must stay in sync manually| A2
+  end
+
+  subgraph Good["✅ Single source of truth"]
+    B1[items state]
+    B2[total = computed]
+    B1 -->|always derived from| B2
+  end
+
+  style Bad fill:#fef2f2,stroke:#ef4444
+  style Good fill:#f0fdf4,stroke:#22c55e
+`} caption="Derived values eliminate synchronization bugs" />
+
+## Derived vs Stored State: Decision Guide
+
+Ask yourself: **"If this other piece of state changes, does this value automatically stay correct?"**
+
+| Value | Stored or Derived? | Why |
+|---|---|---|
+| `firstName`, `lastName` | Stored | Comes from user input, not computable |
+| `fullName` | Derived | `firstName + ' ' + lastName` |
+| `cartItems` | Stored | The source of truth for the cart |
+| `cartTotal` | Derived | `items.reduce(...)` |
+| `cartItemCount` | Derived | `items.length` |
+| `searchQuery` | Stored | Comes from user input |
+| `filteredResults` | Derived | `items.filter(query)` |
+| `isLoggedIn` | Derived | `user !== null` |
+| `user` | Stored | Comes from an API, not computable |
+| `selectedTabIndex` | Stored | User interaction, not computable |
+| `selectedTabContent` | Derived | `tabs[selectedTabIndex]` |
+
+## Practical Refactoring Examples
+
+### Full Name
+
+```tsx
+// ❌ Before: stored in state, manually synced
+function ProfileForm() {
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName]   = useState('')
+  const [fullName, setFullName]   = useState('')
+
+  const handleFirstNameChange = (e) => {
+    setFirstName(e.target.value)
+    setFullName(e.target.value + ' ' + lastName)   // manual sync
+  }
+
+  const handleLastNameChange = (e) => {
+    setLastName(e.target.value)
+    setFullName(firstName + ' ' + e.target.value)  // manual sync
+  }
+}
+
+// ✅ After: derived in render
+function ProfileForm() {
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName]   = useState('')
+
+  const fullName = `${firstName} ${lastName}`.trim()  // always correct
+
+  return (
+    <>
+      <input value={firstName} onChange={e => setFirstName(e.target.value)} />
+      <input value={lastName}  onChange={e => setLastName(e.target.value)} />
+      <p>Hello, {fullName || 'Stranger'}!</p>
+    </>
+  )
+}
+```
+
+### Filtered List
+
+<LiveEditor code={`import { useState } from 'react'
+
+const ALL_BOOKS = [
+  { id: 1, title: 'Thinking in React',    genre: 'React' },
+  { id: 2, title: 'Clean Code',           genre: 'General' },
+  { id: 3, title: 'You Don\\'t Know JS', genre: 'JavaScript' },
+  { id: 4, title: 'React Patterns',       genre: 'React' },
+  { id: 5, title: 'Eloquent JavaScript',  genre: 'JavaScript' },
+  { id: 6, title: 'The Pragmatic Programmer', genre: 'General' },
+]
+
+export default function BookList() {
+  const [query, setQuery]       = useState('')
+  const [genre, setGenre]       = useState('All')
+
+  // Derived — computed from the two state values above
+  const filtered = ALL_BOOKS.filter(book => {
+    const matchesQuery = book.title.toLowerCase().includes(query.toLowerCase())
+    const matchesGenre = genre === 'All' || book.genre === genre
+    return matchesQuery && matchesGenre
+  })
+
+  const genres = ['All', ...new Set(ALL_BOOKS.map(b => b.genre))]
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', maxWidth: 480, margin: '20px auto' }}>
+      <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+        <input
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder="Search books..."
+          style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 14 }}
+        />
+        <select
+          value={genre}
+          onChange={e => setGenre(e.target.value)}
+          style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 14 }}
+        >
+          {genres.map(g => <option key={g}>{g}</option>)}
+        </select>
+      </div>
+
+      <p style={{ color: '#6b7280', fontSize: 13, marginBottom: 12 }}>
+        {filtered.length} of {ALL_BOOKS.length} books
+      </p>
+
+      {filtered.length === 0 ? (
+        <p style={{ color: '#9ca3af', textAlign: 'center', padding: 32 }}>No books match your filters.</p>
+      ) : (
+        <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+          {filtered.map(book => (
+            <li key={book.id} style={{ padding: '10px 14px', borderRadius: 8, marginBottom: 8, background: '#f9fafb', display: 'flex', justifyContent: 'space-between' }}>
+              <span>{book.title}</span>
+              <span style={{ color: '#6b7280', fontSize: 13 }}>{book.genre}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}`} />
+
+Only two pieces of state (`query` and `genre`), but three derived values (`filtered`, `genres`, `filtered.length`). They are always in sync with zero synchronization code.
+
+## Calculating in Render vs useMemo
+
+Computing derived values in render is almost always the right choice. The computation runs synchronously and the result is always fresh.
+
+```tsx
+// ✅ Fine for most cases — fast enough for thousands of items
+const sortedUsers = [...users].sort((a, b) => a.name.localeCompare(b.name))
+const activeUsers = users.filter(u => u.isActive)
+const total       = items.reduce((sum, i) => sum + i.price, 0)
+```
+
+`useMemo` adds overhead (the memoized value must be stored, the dependency array must be compared). It is only worth it when:
+
+1. The computation is genuinely expensive (takes more than a few milliseconds).
+2. The component re-renders frequently for unrelated reasons.
+3. Profiling confirms a real performance problem.
+
+```tsx
+// useMemo is worth it here: parsing and aggregating thousands of log entries
+const parsedStats = useMemo(() => {
+  return logEntries   // could be 50,000 entries
+    .filter(entry => entry.level === 'error')
+    .reduce((acc, entry) => {
+      const key = entry.service
+      acc[key] = (acc[key] ?? 0) + 1
+      return acc
+    }, {} as Record<string, number>)
+}, [logEntries])
+```
+
+<ComparisonTable
+  columns={["", "Compute in render", "useMemo"]}
+  rows={[
+    ["Complexity", "None", "Requires dependency array"],
+    ["Memory", "None", "Stores cached value"],
+    ["Staleness risk", "Never stale", "Can be stale if deps wrong"],
+    ["When to use", "Default choice for all derived values", "Only when profiling shows a bottleneck"],
+    ["Typical threshold", "Any fast computation", "Operations taking >5ms on re-render"],
+  ]}
+/>
+
+<Callout type="warning">
+`useMemo` is an optimization, not a semantic guarantee. React may discard memoized values in the future. Do not use `useMemo` to prevent a side effect or guarantee referential stability for non-performance reasons — use `useCallback` or restructure your code.
+</Callout>
+
+## The getDerivedStateFromProps Anti-Pattern
+
+In class components, `static getDerivedStateFromProps` was used to sync state with props. This pattern is almost universally an anti-pattern and is the source of countless bugs.
+
+```tsx
+// ❌ Class component anti-pattern (avoid in modern React)
+class UserList extends React.Component {
+  static getDerivedStateFromProps(props, state) {
+    // Looks reasonable — but this runs on every render, not just when
+    // props.filter changes. If the user changes filter locally, this will
+    // immediately override it.
+    if (props.filter !== state.prevFilter) {
+      return {
+        filteredUsers: props.users.filter(u => u.role === props.filter),
+        prevFilter: props.filter,
+      }
+    }
+    return null
+  }
+}
+```
+
+The modern equivalent problems in functional components look like this:
+
+```tsx
+// ❌ Functional version of the same anti-pattern
+function UserList({ users, filter }) {
+  const [filteredUsers, setFilteredUsers] = useState(
+    users.filter(u => u.role === filter)
+  )
+
+  // Trying to keep filteredUsers in sync — this is fragile
+  useEffect(() => {
+    setFilteredUsers(users.filter(u => u.role === filter))
+  }, [users, filter])
+}
+
+// ✅ Just derive it
+function UserList({ users, filter }) {
+  const filteredUsers = users.filter(u => u.role === filter)  // always correct
+}
+```
+
+<Callout type="danger">
+Using `useEffect` to synchronize state with state or props is almost always wrong. It creates an extra render cycle (render → effect runs → setState → render again), introduces timing issues, and is harder to reason about than direct computation. If you find yourself writing `useEffect(() => setState(compute(props)), [props])`, replace the whole thing with a plain variable: `const value = compute(props)`.
+</Callout>
+
+## Complete Refactoring Example
+
+A real-world scenario: an e-commerce product page with variants, quantity, and derived pricing.
+
+```tsx
+// ❌ Before: too much state, sync bugs everywhere
+function ProductPage({ product }) {
+  const [selectedVariant, setSelectedVariant] = useState(product.variants[0])
+  const [quantity, setQuantity]               = useState(1)
+  const [unitPrice, setUnitPrice]             = useState(product.variants[0].price)    // redundant
+  const [lineTotal, setLineTotal]             = useState(product.variants[0].price)    // redundant
+  const [isInStock, setIsInStock]             = useState(product.variants[0].stock > 0)// redundant
+  const [stockLabel, setStockLabel]           = useState('In Stock')                   // redundant
+
+  const selectVariant = (variant) => {
+    setSelectedVariant(variant)
+    setUnitPrice(variant.price)                         // easy to forget
+    setLineTotal(variant.price * quantity)              // easy to get wrong
+    setIsInStock(variant.stock > 0)                    // easy to forget
+    setStockLabel(variant.stock > 0 ? 'In Stock' : 'Out of Stock')
+  }
+
+  const changeQty = (qty) => {
+    setQuantity(qty)
+    setLineTotal(selectedVariant.price * qty)           // must remember
+  }
+}
+```
+
+```tsx
+// ✅ After: minimal state, everything else derived
+function ProductPage({ product }) {
+  // Minimal state: only what cannot be computed
+  const [selectedVariantId, setSelectedVariantId] = useState(product.variants[0].id)
+  const [quantity, setQuantity]                   = useState(1)
+
+  // All derived — always in sync, zero sync code
+  const selectedVariant = product.variants.find(v => v.id === selectedVariantId)
+  const unitPrice       = selectedVariant.price
+  const lineTotal       = unitPrice * quantity
+  const isInStock       = selectedVariant.stock > 0
+  const stockLabel      = isInStock
+    ? selectedVariant.stock < 5
+      ? `Only ${selectedVariant.stock} left!`
+      : 'In Stock'
+    : 'Out of Stock'
+  const maxQuantity     = Math.min(selectedVariant.stock, 10)
+
+  return (
+    <div>
+      <VariantSelector
+        variants={product.variants}
+        selectedId={selectedVariantId}
+        onSelect={setSelectedVariantId}
+      />
+      <QuantityInput
+        value={quantity}
+        max={maxQuantity}
+        disabled={!isInStock}
+        onChange={setQuantity}
+      />
+      <p className={isInStock ? 'text-green' : 'text-red'}>{stockLabel}</p>
+      <p>Unit price: ${unitPrice.toFixed(2)}</p>
+      <p>Total: ${lineTotal.toFixed(2)}</p>
+      <button disabled={!isInStock}>Add to Cart</button>
+    </div>
+  )
+}
+```
+
+The refactored version has 2 pieces of state instead of 7, and zero synchronization logic. Every derived value is guaranteed to be correct on every render.
+
+## Summary
+
+- **Derived state** is any value that can be computed from existing state or props.
+- **Do not store** what you can compute — it creates two sources of truth that drift apart.
+- **The single source of truth** principle: each piece of data has exactly one authoritative location.
+- **Compute in render** by default — it is simple, always correct, and sufficient for most workloads.
+- **Use `useMemo`** only when profiling reveals a genuine performance bottleneck from an expensive computation.
+- **Avoid `useEffect` for sync** — if you are using an effect to keep state in sync with other state or props, you almost certainly should be computing it in render instead.
+
+<InterviewQA questions={[
+  {
+    question: "What is derived state and why is it better to compute it than store it?",
+    answer: "Derived state is any value that can be calculated from existing state or props — like a total price from a list of items, a filtered list from a search query, or a full name from first and last name. It is better to compute it than store it because storing it creates two sources of truth that must be manually kept in sync. Every code path that mutates the source data must also update the derived copy. Miss one update and the UI shows inconsistent data. Computing it in render guarantees it is always correct with zero synchronization code.",
+    level: "intermediate"
+  },
+  {
+    question: "When is useMemo appropriate for derived state?",
+    answer: "useMemo is appropriate only when a derived computation is genuinely expensive (takes several milliseconds), the component re-renders frequently for unrelated reasons, and profiling confirms the computation is a real bottleneck. For the vast majority of applications — filtering arrays, summing totals, formatting strings — computing in render is fast enough. useMemo adds cognitive overhead (dependency arrays, risk of stale values if deps are wrong) and should be reserved for proven performance problems.",
+    level: "intermediate"
+  },
+  {
+    question: "What is wrong with using useEffect to sync state with other state or props?",
+    answer: "Using useEffect to sync state creates a two-render cycle: the component renders with the old value, the effect runs, calls setState, then the component renders again with the correct value. This causes a flash of incorrect UI, doubles the render work, and creates timing issues in concurrent mode. It also makes the code harder to follow. The correct solution is almost always to not store the value in state at all — just compute it as a regular variable during render, where it is always derived fresh from the current state or props.",
+    level: "intermediate"
+  }
+]} />

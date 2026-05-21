@@ -1,0 +1,198 @@
+---
+title: Virtual DOM
+description: Understand how React's Virtual DOM works, the diffing algorithm, and why it makes React fast.
+category: Introduction
+order: 4
+slug: introduction/virtual-dom
+difficulty: beginner
+estimatedTime: 10
+tags: [virtual dom, reconciliation, diffing, fiber, performance]
+lastUpdated: 2024-01-15
+---
+
+# Virtual DOM
+
+The **Virtual DOM (VDOM)** is one of React's core innovations. It's a lightweight, in-memory representation of the real DOM that React uses to compute the minimum number of changes needed to update the UI.
+
+<Callout type="tip" title="Mental model first">
+Think of the Virtual DOM as React's **draft** or **blueprint**. React works on the draft, compares it to the previous draft, and only applies the differences to the real DOM.
+</Callout>
+
+## Why the Real DOM Is Slow
+
+Directly manipulating the real DOM is expensive because:
+
+1. **Layout thrashing** — reading and writing DOM properties forces the browser to recalculate layout
+2. **Repaints and reflows** — CSS changes trigger full style recalculations
+3. **Synchronous nature** — blocking the main thread during updates
+
+```js
+// This innocent-looking loop causes 100 layout recalculations
+for (let i = 0; i < 100; i++) {
+  document.getElementById('counter').textContent = i  // DOM write
+  console.log(document.body.scrollHeight)             // DOM read → forces reflow
+}
+```
+
+## What Is the Virtual DOM?
+
+The Virtual DOM is a **plain JavaScript object** that mirrors the structure of the real DOM:
+
+```js
+// What the browser has:
+// <div class="card">
+//   <h2>Hello</h2>
+//   <p>World</p>
+// </div>
+
+// What React keeps in memory (simplified):
+const virtualNode = {
+  type: 'div',
+  props: { className: 'card' },
+  children: [
+    { type: 'h2', props: {}, children: ['Hello'] },
+    { type: 'p',  props: {}, children: ['World'] },
+  ]
+}
+```
+
+Creating and diffing JavaScript objects is orders of magnitude faster than touching the real DOM.
+
+## The Reconciliation Process
+
+<MermaidDiagram chart={`
+flowchart TD
+  A[State/Props Change] --> B[React calls render]
+  B --> C[New Virtual DOM Tree created]
+  C --> D{Diff with previous<br/>Virtual DOM tree}
+  D --> E[Compute minimal changeset]
+  E --> F[Batch DOM updates]
+  F --> G[Commit to real DOM]
+  G --> H[Browser repaints]
+`} caption="React's reconciliation pipeline" />
+
+### Step 1 — Render phase
+
+When state or props change, React calls your component function (or `render` method for class components) to produce a new virtual tree.
+
+### Step 2 — Diffing
+
+React compares the new tree against the previous snapshot using the **diffing algorithm**. The algorithm applies two heuristics to achieve O(n) complexity instead of O(n³):
+
+1. **Different types produce different trees** — if the root element type changes (e.g., `<div>` → `<span>`), React destroys the old tree and rebuilds from scratch
+2. **Keys identify list children** — when rendering lists, `key` props let React match old and new elements correctly
+
+### Step 3 — Commit phase
+
+React applies only the computed differences (patches) to the real DOM in a single batched operation.
+
+## Diffing in Action
+
+```tsx
+// Render 1 — initial state
+<ul>
+  <li key="a">Apple</li>
+  <li key="b">Banana</li>
+  <li key="c">Cherry</li>
+</ul>
+
+// Render 2 — state change: add "Avocado" at the top
+<ul>
+  <li key="z">Avocado</li>  {/* new */}
+  <li key="a">Apple</li>    {/* existing — React moves it */}
+  <li key="b">Banana</li>   {/* existing */}
+  <li key="c">Cherry</li>   {/* existing */}
+</ul>
+
+// Without keys: React would re-render all 4 items
+// With keys:    React inserts one new <li>, leaves the rest intact
+```
+
+<Callout type="warning" title="Keys matter for performance and correctness">
+Never use array indices as keys for dynamic lists. If items can be added/removed/reordered, index-based keys cause React to re-render all items and can cause bugs with component state.
+</Callout>
+
+## React Fiber — The Modern Reconciler
+
+React 16 replaced the original stack-based reconciler with **Fiber** — a complete rewrite that enables:
+
+| Feature | What it enables |
+|---|---|
+| **Interruptible rendering** | Pause work to keep the UI responsive |
+| **Priority scheduling** | User interactions preempt background work |
+| **Concurrent Mode** | Render multiple versions of the UI simultaneously |
+| **Suspense** | Declaratively handle async loading states |
+| **Time slicing** | Spread rendering over multiple frames |
+
+```tsx
+// React 18 concurrent rendering with startTransition
+import { startTransition } from 'react'
+
+// Low-priority update — can be interrupted
+startTransition(() => {
+  setSearchQuery(value)  // deferred search
+})
+
+// High-priority update — runs immediately
+setInputValue(value)   // instant input feedback
+```
+
+## VDOM vs Direct DOM — Performance Comparison
+
+<ComparisonTable
+  columns={[
+    { key: 'vdom',  label: 'Virtual DOM (React)', highlight: true },
+    { key: 'direct',label: 'Direct DOM' },
+  ]}
+  rows={[
+    { feature: 'Update cost',       vdom: 'JS object diff + batch commit',      direct: 'Per-operation DOM write' },
+    { feature: 'Layout recalc',     vdom: 'Once per commit batch',              direct: 'Every mutation' },
+    { feature: 'Mental model',      vdom: 'Declarative state → UI',             direct: 'Imperative step-by-step' },
+    { feature: 'Correctness',       vdom: 'React handles sync',                 direct: 'Manual sync, error-prone' },
+    { feature: 'Concurrent renders',vdom: true,                                 direct: false },
+    { feature: 'Cross-platform',    vdom: 'React Native, Ink, React PDF...',    direct: 'Browser only' },
+  ]}
+/>
+
+## Common Misconceptions
+
+**Myth: The Virtual DOM is always faster than direct DOM**
+
+The VDOM adds overhead — diffing costs time. For simple static UIs, direct DOM manipulation can be faster. The VDOM shines in **complex, frequently-updating UIs** where batching and minimizing reflows provides a net win.
+
+**Myth: React always re-renders the whole component tree**
+
+React only re-renders components whose state or props changed, plus their children. You can further cut this with `React.memo`, `useMemo`, and `useCallback`.
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- The Virtual DOM is an **in-memory JS object tree** mirroring the real DOM
+- React **diffs** new vs old virtual trees and applies only the minimum DOM changes
+- The **Fiber reconciler** (React 16+) enables interruptible, prioritized rendering
+- **Keys** are essential for efficient list reconciliation
+- The VDOM's value is **declarative programming + batched updates**, not raw speed
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "What is the Virtual DOM and how does it improve performance?",
+    answer: "The Virtual DOM is a lightweight JavaScript representation of the real DOM. When state changes, React creates a new virtual tree, diffs it against the previous one, and applies only the necessary changes to the real DOM in a single batched operation. This is faster than individually mutating the DOM on every state change because: (1) JS object operations are much faster than DOM operations, (2) batching changes reduces layout recalculations and repaints, (3) React can defer non-critical updates.",
+    level: "junior"
+  },
+  {
+    question: "What is React's diffing algorithm and what are its key heuristics?",
+    answer: "React's diffing algorithm achieves O(n) time complexity using two heuristics: (1) Elements of different types produce completely different trees — React tears down and rebuilds when the root type changes. (2) Keys identify sibling elements across renders — keys let React match list items between renders, avoiding unnecessary re-creates. Without these heuristics, the theoretical minimum for tree comparison is O(n³), which would make React unusable at scale.",
+    level: "mid"
+  },
+  {
+    question: "What is React Fiber and how does it differ from the old stack reconciler?",
+    answer: "React Fiber (introduced in React 16) is a complete rewrite of the reconciliation algorithm. The old stack reconciler was synchronous and recursive — it couldn't be interrupted once started, which could block the main thread for large component trees. Fiber splits work into small units and allows React to pause, prioritize, and resume work. This enables Concurrent Mode features: startTransition for deferring low-priority updates, Suspense for async rendering, and time slicing to prevent dropped frames.",
+    level: "senior"
+  },
+  {
+    question: "How does React 18's concurrent renderer change the rendering model?",
+    answer: "React 18's concurrent renderer allows React to prepare multiple versions of the UI simultaneously and decide which to commit based on priority. Key APIs: startTransition marks updates as non-urgent (interruptible), useDeferredValue creates a deferred copy of a value, useTransition exposes isPending state. Under the hood, Fiber uses a 'lanes' model with 31 priority levels. High-priority work (user input) interrupts in-progress low-priority renders. This is critical for maintaining 60fps on complex dashboards where search/filter operations would otherwise block input.",
+    level: "enterprise"
+  }
+]} />

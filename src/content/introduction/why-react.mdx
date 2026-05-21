@@ -1,0 +1,103 @@
+---
+title: Why React?
+description: The problems React solves, its philosophy, and why it dominates modern frontend development.
+category: Introduction
+order: 2
+slug: introduction/why-react
+difficulty: beginner
+estimatedTime: 8
+tags: [react, why react, benefits, philosophy, ecosystem]
+lastUpdated: 2024-01-15
+---
+
+# Why React?
+
+React didn't win by accident. It solved a specific, painful problem that every large web application team faced in 2013 — and it solved it elegantly.
+
+## The Problem Before React
+
+In 2012, building a feature like Facebook's real-time notifications required:
+
+```js
+// Each feature required manually tracking what changed and updating the DOM
+function updateNotificationBadge(count) {
+  document.getElementById('badge').textContent = count
+  if (count > 0) {
+    document.getElementById('badge').classList.add('has-notifications')
+    document.getElementById('nav-bell').setAttribute('aria-label', `${count} notifications`)
+  } else {
+    document.getElementById('badge').classList.remove('has-notifications')
+  }
+}
+
+// Multiply this pattern by 500 components. You now have a spaghetti codebase.
+```
+
+The fundamental problem: **UI is a function of state, but we were writing code as a series of mutations**.
+
+## React's Core Insight
+
+React flips the model: **UI = f(state)**
+
+```tsx
+// React: describe the UI for any state
+function NotificationBadge({ count }: { count: number }) {
+  return (
+    <div
+      className={count > 0 ? 'badge has-notifications' : 'badge'}
+      aria-label={count > 0 ? `${count} notifications` : 'No notifications'}
+    >
+      {count > 0 && count}
+    </div>
+  )
+}
+// React handles the DOM mutations to get from old state to new state
+```
+
+## The 5 Reasons React Won
+
+### 1. Component model
+
+Encapsulate markup + logic + style in one unit. A Button is a Button everywhere — consistent behavior, one place to fix bugs.
+
+### 2. Unidirectional data flow
+
+Data flows down (props), events bubble up (callbacks). Debugging a bug? You know exactly where state lives and what changes it.
+
+### 3. Ecosystem and community
+
+3+ million npm packages. Solutions for every problem. Largest community of any UI library.
+
+### 4. React Native
+
+Write once, target iOS and Android with the same mental model. Cross-platform without learning a new framework.
+
+### 5. Job market dominance
+
+React is required in ~50% of frontend job listings. The investment pays off immediately.
+
+## React's Philosophy
+
+| Philosophy | Meaning |
+|---|---|
+| **Composition over inheritance** | Build complex UIs from small pieces |
+| **Explicit over implicit** | State changes are traceable |
+| **UI as a function** | Same state → same UI, always |
+| **Escape hatches** | When you need imperative DOM access, refs exist |
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- React solved the state-sync problem by making UI a **pure function of state**
+- The component model enables large teams to work without stepping on each other
+- Unidirectional data flow makes state bugs traceable
+- The ecosystem, community, and job market make React the safe choice for most teams
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "Why did React become more popular than Angular or Vue?",
+    answer: "Multiple factors: (1) Facebook's backing provided trust and resources. (2) The component model was simpler than Angular's complex MVC abstraction. (3) React Native extended the value to mobile. (4) React is a library — teams could adopt it incrementally without a full rewrite. (5) The JSX syntax, while initially controversial, proved ergonomic for components. (6) Network effects — React's head start created a larger ecosystem and talent pool, which became self-reinforcing.",
+    level: "mid"
+  }
+]} />

@@ -1,0 +1,81 @@
+---
+title: Senior React Interview Questions
+description: Advanced React interview questions covering architecture, performance, internals, and enterprise patterns.
+category: Interview
+order: 3
+slug: interview/interview-senior
+difficulty: advanced
+estimatedTime: 30
+tags: [interview, senior, advanced, architecture, performance, fiber, concurrent]
+lastUpdated: 2024-01-15
+---
+
+# Senior React Interview Questions
+
+These questions test deep understanding of React internals, architectural patterns, performance optimization, and the ability to make informed trade-offs at scale.
+
+<Callout type="tip" title="How to approach senior interviews">
+Senior interviews are about **trade-offs and reasoning**, not just knowing answers. Explain *why* you'd choose one approach over another, mention what you'd consider before making a decision, and demonstrate that you've encountered real production problems.
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "Explain React's Fiber architecture and why it was necessary.",
+    answer: "The original stack reconciler processed the component tree recursively and synchronously — once started, it couldn't be interrupted. For large trees, this blocked the main thread for hundreds of milliseconds, causing janky UIs.\n\nFiber reimplements the reconciler as a linked list of 'fiber' nodes (one per component). Work is broken into small units and processed incrementally. After each unit, React can yield to the browser (check if there's higher-priority work, allow repaints).\n\nKey Fiber concepts: (1) Work loop with expiration times → priority lanes in React 18. (2) Two phases: render phase (interruptible, builds the 'work-in-progress' tree) and commit phase (synchronous, applies DOM changes). (3) The double-buffering technique: current tree (on screen) and work-in-progress tree (being built). (4) Enabled Concurrent Mode, Suspense, and priority-based scheduling.",
+    level: "senior"
+  },
+  {
+    question: "What are React 18's concurrent features and when would you use each?",
+    answer: "React 18 concurrent features:\n\n• startTransition(() => setState(...)): marks updates as non-urgent. React can interrupt and discard in-progress renders for higher-priority work. Use for: search filtering, route changes, any state update that doesn't need to be immediate. Prevents input lag on heavy renders.\n\n• useDeferredValue(value): like debounce but integrated with the React scheduler. Gives you a 'deferred' copy of a value that can fall behind. Use for: deferring re-renders of expensive child components (e.g., a giant list) while keeping the input responsive.\n\n• useTransition(): returns [isPending, startTransition]. isPending is true while a transition is in progress — use it to show loading indicators without blocking the current UI.\n\n• Automatic batching: React 18 batches all setState calls (even in setTimeout, Promises, native events) — previously only batched inside React event handlers.",
+    level: "senior"
+  },
+  {
+    question: "How does React's reconciliation algorithm handle lists and what are the performance implications of key choices?",
+    answer: "Without keys, React compares elements by position. Adding/removing items causes cascading updates of all subsequent items. With keys, React matches old and new elements by key — only modified items get updated.\n\nKey rules for performance: (1) Keys must be stable, unique, and predictable across renders. (2) Using array index as key is correct only for static, non-reorderable lists. For dynamic lists, index keys cause: incorrect component state mapping after reorder, unnecessary remounts when inserting at the beginning. (3) UUID keys for new items cause full remount (losing focus, animation state). Use server-generated IDs or stable client IDs. (4) Key changes trigger full unmount + remount — you can use this intentionally to reset component state: <Editor key={documentId} />.",
+    level: "senior"
+  },
+  {
+    question: "What is the Suspense model and how does it interact with Error Boundaries?",
+    answer: "Suspense catches thrown Promises from child components and shows a fallback while they resolve. A component 'suspends' by throwing a Promise; React catches it, renders the fallback, and re-renders when the Promise resolves.\n\nSuspense + Error Boundary relationship: wrap Suspense in an Error Boundary to handle both loading states and errors. Order matters: <ErrorBoundary><Suspense fallback={<Loader />}><Data /></Suspense></ErrorBoundary>.\n\nIn React 18, Suspense works with: React.lazy() (code splitting), data fetching frameworks (React Query v5, Relay, Next.js), and useTransition. Direct use with fetch() requires a Suspense-compatible data layer — raw promises don't work without a cache/wrapper.\n\nSuspense enables 'render as you fetch' instead of 'fetch then render', eliminating loading waterfalls by starting fetches before components render.",
+    level: "senior"
+  },
+  {
+    question: "Describe a real performance problem you solved in a React application.",
+    answer: "Example structured answer: 'In a data dashboard with 500+ rows updating every 5 seconds via WebSocket, the whole table re-rendered on each update, causing frame drops.\n\nDiagnosis: React Profiler showed the table parent re-rendering and cascading updates to all row components, even unchanged ones.\n\nSolution: (1) Moved WebSocket data to a normalized Redux store (keyed by row ID). (2) Wrapped each row in React.memo() — it now re-renders only when its specific data changes. (3) Used useSelector with a row-specific selector: useAppSelector(state => state.table.rows[id]) — each row subscribes to its own data. (4) Virtualized the list with react-window — only renders visible rows (~30 of 500). Result: CPU during updates dropped from 80% to 12%, frame rate stabilized at 60fps.\n\nKey insight: the fix was about subscription granularity, not raw rendering speed.'",
+    level: "senior"
+  },
+  {
+    question: "How would you architect a micro-frontend system with React?",
+    answer: "Micro-frontends split a large frontend into independently deployable pieces. Approaches:\n\n1. Module Federation (Webpack/Vite): each team builds and deploys independently; at runtime, the shell app dynamically loads remote modules. Best for: teams with separate CI/CD, avoiding monorepo complexity. Downsides: shared dependency versioning complexity, runtime errors.\n\n2. iFrame integration: maximum isolation (own JS runtime, CSS), but poor UX (scroll, modal, auth context sharing are painful).\n\n3. Web Components: framework-agnostic; React components compiled to custom elements. Good for gradual migration from legacy apps.\n\nKey decisions: (1) Shared design system — single npm package or Module Federation shared scope. (2) Shared auth — JWT in HttpOnly cookie passed to all micro-frontends. (3) Cross-app communication — custom events or shared state through a global event bus. (4) Routing strategy — shell owns top-level routing, micro-frontends own subroutes. (5) Error isolation — each micro-frontend in its own Error Boundary so one failure doesn't crash the shell.",
+    level: "enterprise"
+  },
+  {
+    question: "How do you test complex React component interactions, including hooks and context?",
+    answer: "Testing strategy by layer:\n\n1. Unit test hooks: use renderHook from @testing-library/react. Wrap in custom providers if the hook uses Context.\n\n2. Component tests: React Testing Library (RTL) — test behavior, not implementation. Query by role/label text (aria-accessible queries). Fire events with userEvent (not fireEvent — userEvent simulates full browser behavior including focus, tab, etc.).\n\n3. Integration tests: test component trees with real Context providers (or custom render wrapper that includes all providers). Test workflows: 'user fills form, submits, sees success message'.\n\n4. MSW for API mocking: intercept network at the service worker level — same mock works in test, dev, and Storybook. Avoid mocking fetch/axios directly.\n\n5. RTK Query tests: use setupServer() from msw to mock endpoints, configure real queryClient per test with no cache time.\n\n6. E2E: Playwright for critical paths (checkout flow, auth). Test against a staging API, not mocks. The key principle: test behavior users care about, not implementation details that will change.",
+    level: "enterprise"
+  }
+]} />
+
+## Architecture & System Design Questions
+
+These open-ended questions test your ability to reason about large systems:
+
+### Q: How would you build a real-time collaborative text editor in React?
+
+**Approach:**
+1. Use **operational transforms** or **CRDTs** (e.g., Yjs, Automerge) for conflict-free concurrent edits
+2. **WebSocket** for real-time sync; **HTTP SSE** as fallback
+3. **Optimistic updates** — apply local edits instantly, sync in background
+4. **Presence indicators** — show cursors/selections of other users
+5. **Offline support** — queue edits in IndexedDB, sync on reconnect
+6. Editor core: **ProseMirror** or **Lexical** (Meta's editor)
+
+### Q: Design the state management strategy for a large SaaS application
+
+**Layered approach:**
+- **Server state**: RTK Query or React Query — caching, deduplication, background refresh
+- **UI state**: component-local `useState` / `useReducer`
+- **Shared UI state**: lightweight Zustand store (modals, notifications, theme)
+- **Complex domain state**: Redux Toolkit with normalized entities
+- **URL state**: React Router search params for filters/pagination (shareable URLs)
+- **Form state**: React Hook Form — uncontrolled, highly performant

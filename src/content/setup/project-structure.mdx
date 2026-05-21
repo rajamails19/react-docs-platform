@@ -1,0 +1,520 @@
+---
+title: React Project Structure — Organizing Your Codebase
+description: Learn how to organize React projects with feature-based or type-based folder structures, naming conventions, barrel files, path aliases, and enterprise-scale patterns.
+category: Setup
+order: 3
+slug: setup/project-structure
+difficulty: beginner
+estimatedTime: 16
+tags: [project-structure, folder-structure, organization, naming-conventions, barrel-files, path-aliases, architecture]
+lastUpdated: 2024-01-15
+---
+
+# React Project Structure
+
+One of the most impactful decisions you'll make in a React project is how to organize your files and folders. A good structure makes features easy to find, promotes code reuse, and scales gracefully as the app grows. A bad structure turns every feature addition into an archaeological dig.
+
+<Callout type="info" title="React doesn't enforce a structure">
+React has zero opinions on folder structure. This freedom is both a strength and a trap. The patterns in this guide reflect industry consensus for small-to-enterprise-scale applications.
+</Callout>
+
+## The Two Main Philosophies
+
+### Type-Based Structure (Group by file type)
+
+Files are organized by what kind of file they are — all components together, all hooks together, all utilities together.
+
+```
+src/
+├── components/
+│   ├── Button.tsx
+│   ├── Modal.tsx
+│   ├── UserCard.tsx
+│   └── ProductList.tsx
+├── hooks/
+│   ├── useAuth.ts
+│   ├── useCart.ts
+│   └── useProducts.ts
+├── pages/
+│   ├── HomePage.tsx
+│   ├── ProfilePage.tsx
+│   └── CheckoutPage.tsx
+├── utils/
+│   ├── formatDate.ts
+│   ├── formatCurrency.ts
+│   └── validators.ts
+└── types/
+    ├── user.ts
+    ├── product.ts
+    └── cart.ts
+```
+
+**Pros:** Simple, easy to explain, works great for small apps  
+**Cons:** As the app grows, folders become enormous; related files for one feature are scattered across multiple directories
+
+### Feature-Based Structure (Group by feature/domain)
+
+Files are organized by the feature they belong to. Each feature folder contains everything it needs — components, hooks, types, utilities.
+
+```
+src/
+├── features/
+│   ├── auth/
+│   │   ├── components/
+│   │   │   ├── LoginForm.tsx
+│   │   │   └── SignupForm.tsx
+│   │   ├── hooks/
+│   │   │   ├── useAuth.ts
+│   │   │   └── useSession.ts
+│   │   ├── api/
+│   │   │   └── authApi.ts
+│   │   ├── types/
+│   │   │   └── auth.types.ts
+│   │   └── index.ts          ← public API of this feature
+│   ├── cart/
+│   │   ├── components/
+│   │   ├── hooks/
+│   │   └── index.ts
+│   └── products/
+│       ├── components/
+│       ├── hooks/
+│       └── index.ts
+├── shared/
+│   ├── components/           ← components used by multiple features
+│   ├── hooks/
+│   └── utils/
+├── pages/                    ← route-level components that compose features
+└── App.tsx
+```
+
+**Pros:** Excellent scalability; each feature is self-contained; easy to find everything related to one feature; features can be developed in parallel  
+**Cons:** More upfront setup; may feel over-engineered for small apps
+
+<ComparisonTable
+  columns={[
+    { key: 'aspect', label: 'Aspect' },
+    { key: 'type', label: 'Type-Based' },
+    { key: 'feature', label: 'Feature-Based', highlight: true },
+  ]}
+  rows={[
+    { feature: 'Setup complexity', type: 'Low', feature: 'Medium' },
+    { feature: 'Best for', type: 'Small apps (<10 features)', feature: 'Medium to large apps' },
+    { feature: 'Finding related files', type: 'Hard (scattered across dirs)', feature: 'Easy (same folder)' },
+    { feature: 'Deleting a feature', type: 'Risky (files everywhere)', feature: 'Simple (delete one folder)' },
+    { feature: 'Team scalability', type: 'Poor (merge conflicts)', feature: 'Excellent (isolated ownership)' },
+    { feature: 'Industry adoption', type: 'Common in tutorials', feature: 'Preferred in production' },
+  ]}
+/>
+
+## Recommended Folder Structure (Practical)
+
+For most projects, a pragmatic hybrid works best — start simple, add structure as features grow:
+
+```
+src/
+├── assets/              # Static files
+│   ├── images/
+│   ├── icons/
+│   └── fonts/
+│
+├── components/          # Shared/reusable UI components
+│   ├── ui/              # Primitive components (Button, Input, Modal)
+│   │   ├── Button/
+│   │   │   ├── Button.tsx
+│   │   │   ├── Button.test.tsx
+│   │   │   ├── Button.module.css
+│   │   │   └── index.ts
+│   │   └── Input/
+│   └── layout/          # Layout components (Header, Footer, Sidebar)
+│       ├── Header.tsx
+│       └── Footer.tsx
+│
+├── features/            # Feature-specific code
+│   ├── auth/
+│   ├── dashboard/
+│   └── settings/
+│
+├── hooks/               # Shared custom hooks
+│   ├── useDebounce.ts
+│   ├── useLocalStorage.ts
+│   └── useMediaQuery.ts
+│
+├── pages/               # Route-level page components
+│   ├── HomePage.tsx
+│   ├── DashboardPage.tsx
+│   └── NotFoundPage.tsx
+│
+├── services/            # API calls and external service integrations
+│   ├── api.ts           # Axios/fetch instance configuration
+│   ├── userService.ts
+│   └── productService.ts
+│
+├── store/               # Global state (Redux, Zustand, Jotai)
+│   ├── index.ts
+│   └── slices/
+│
+├── types/               # Shared TypeScript types and interfaces
+│   ├── api.types.ts
+│   └── common.types.ts
+│
+├── utils/               # Pure utility functions
+│   ├── formatDate.ts
+│   ├── formatCurrency.ts
+│   └── cn.ts            # classnames utility
+│
+├── App.tsx
+├── main.tsx             # Entry point
+└── vite-env.d.ts
+```
+
+## What Goes in Each Folder
+
+### `components/` — Shared UI building blocks
+
+Components here are **not feature-specific** — they're used across multiple pages or features. If only one feature uses a component, it lives inside that feature folder.
+
+```tsx
+// components/ui/Button/Button.tsx
+interface ButtonProps {
+  variant?: 'primary' | 'secondary' | 'ghost'
+  size?: 'sm' | 'md' | 'lg'
+  loading?: boolean
+  children: React.ReactNode
+  onClick?: () => void
+}
+
+export function Button({ variant = 'primary', size = 'md', loading, children, onClick }: ButtonProps) {
+  return (
+    <button
+      className={cn(styles.button, styles[variant], styles[size])}
+      disabled={loading}
+      onClick={onClick}
+    >
+      {loading ? <Spinner /> : children}
+    </button>
+  )
+}
+```
+
+### `hooks/` — Shared custom hooks
+
+Hooks that are **used by more than one component or feature**. Feature-specific hooks live inside their feature folder.
+
+```ts
+// hooks/useDebounce.ts
+export function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState(value)
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedValue(value), delay)
+    return () => clearTimeout(timer)
+  }, [value, delay])
+
+  return debouncedValue
+}
+```
+
+### `pages/` — Route-level components
+
+Pages are thin orchestrators. They import from features and shared components but contain minimal logic themselves:
+
+```tsx
+// pages/DashboardPage.tsx
+import { DashboardStats }    from '@/features/dashboard'
+import { RecentActivity }    from '@/features/activity'
+import { UserGreeting }      from '@/features/auth'
+import { PageLayout }        from '@/components/layout'
+
+export function DashboardPage() {
+  return (
+    <PageLayout title="Dashboard">
+      <UserGreeting />
+      <DashboardStats />
+      <RecentActivity />
+    </PageLayout>
+  )
+}
+```
+
+### `services/` — API and external integrations
+
+Keep all HTTP requests here. Components and hooks never call `fetch` directly — they call service functions:
+
+```ts
+// services/userService.ts
+import { api } from './api'
+import type { User, UpdateUserPayload } from '@/types'
+
+export const userService = {
+  getProfile: (userId: string): Promise<User> =>
+    api.get(`/users/${userId}`).then(r => r.data),
+
+  updateProfile: (userId: string, data: UpdateUserPayload): Promise<User> =>
+    api.patch(`/users/${userId}`, data).then(r => r.data),
+
+  deleteAccount: (userId: string): Promise<void> =>
+    api.delete(`/users/${userId}`).then(r => r.data),
+}
+```
+
+## Naming Conventions
+
+Consistent naming makes a codebase self-documenting.
+
+### PascalCase for Components
+
+Every React component file uses PascalCase:
+
+```
+Button.tsx          ✅
+UserProfileCard.tsx ✅
+button.tsx          ❌
+userProfileCard.tsx ❌
+user-profile-card.tsx ❌ (acceptable in some teams, not standard)
+```
+
+### camelCase for Hooks
+
+Custom hooks always start with `use` and use camelCase:
+
+```
+useAuth.ts         ✅
+useLocalStorage.ts ✅
+UseAuth.ts         ❌
+use-auth.ts        ❌
+```
+
+### camelCase for Utilities and Services
+
+```
+formatDate.ts      ✅
+userService.ts     ✅
+format-date.ts     ❌ (some teams accept this)
+```
+
+### SCREAMING_SNAKE_CASE for Constants
+
+```ts
+// constants/api.ts
+export const API_BASE_URL = 'https://api.example.com'
+export const MAX_RETRY_ATTEMPTS = 3
+export const DEFAULT_PAGE_SIZE = 20
+```
+
+### Types and Interfaces
+
+```ts
+// Interfaces: PascalCase, often prefixed with I (optional, team choice)
+interface User { ... }
+interface IUser { ... }  // Some teams use I prefix
+
+// Type aliases: PascalCase
+type UserId = string
+type ApiResponse<T> = { data: T; error: string | null }
+
+// Enums: PascalCase
+enum UserRole { Admin, Editor, Viewer }
+```
+
+## Index Barrel Files
+
+A `index.ts` barrel file re-exports everything from a folder, creating a clean public API:
+
+```ts
+// components/ui/Button/index.ts
+export { Button } from './Button'
+export type { ButtonProps } from './Button'
+```
+
+```ts
+// features/auth/index.ts — public API of the auth feature
+export { LoginForm } from './components/LoginForm'
+export { SignupForm } from './components/SignupForm'
+export { useAuth } from './hooks/useAuth'
+export type { User, AuthState } from './types/auth.types'
+// Note: do NOT export internal implementation details
+```
+
+This lets consumers import cleanly:
+
+```ts
+// Without barrel files (verbose, leaks internal structure):
+import { LoginForm } from '@/features/auth/components/LoginForm'
+import { useAuth }   from '@/features/auth/hooks/useAuth'
+
+// With barrel files (clean, hides internals):
+import { LoginForm, useAuth } from '@/features/auth'
+```
+
+<Callout type="warning" title="Barrel files and tree-shaking">
+Barrel files can hurt bundle size if not configured correctly. Make sure your bundler (Vite/Webpack) has `sideEffects: false` in package.json or configure proper tree-shaking. Avoid barrel files that import-then-re-export large dependencies.
+</Callout>
+
+## Absolute Imports with `@/` Aliases
+
+Instead of relative imports that get unwieldy:
+
+```ts
+// Fragile — breaks if file moves
+import { Button } from '../../../components/ui/Button'
+import { useAuth } from '../../hooks/useAuth'
+```
+
+Configure path aliases to always import from root:
+
+```ts
+// Clean and stable
+import { Button } from '@/components/ui/Button'
+import { useAuth } from '@/hooks/useAuth'
+```
+
+### Setting Up Aliases in Vite
+
+```ts
+// vite.config.ts
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import path from 'path'
+
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
+})
+```
+
+### TypeScript Path Mapping
+
+```json
+// tsconfig.json
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    }
+  }
+}
+```
+
+Now `@/components/Button` resolves to `src/components/Button` regardless of where the importing file lives.
+
+## Enterprise-Scale Folder Structure
+
+For large applications with multiple teams:
+
+```
+src/
+├── app/                    # App-level configuration
+│   ├── router.tsx          # Route definitions
+│   ├── store.ts            # Store configuration
+│   └── App.tsx
+│
+├── features/               # Feature modules (domain-driven)
+│   ├── auth/
+│   │   ├── api/            # API calls for this feature
+│   │   ├── components/     # UI components
+│   │   ├── hooks/          # Custom hooks
+│   │   ├── store/          # Feature-level state slice
+│   │   ├── types/          # TypeScript types
+│   │   ├── utils/          # Feature-specific utilities
+│   │   └── index.ts        # Public exports
+│   │
+│   ├── billing/
+│   ├── notifications/
+│   ├── reports/
+│   └── users/
+│
+├── shared/                 # Truly shared across all features
+│   ├── components/
+│   │   ├── ui/             # Design system components
+│   │   ├── forms/          # Form primitives
+│   │   └── charts/         # Chart components
+│   ├── hooks/
+│   ├── services/
+│   ├── utils/
+│   └── types/
+│
+├── pages/                  # Next.js-style page components
+│   ├── (auth)/             # Auth-required routes (grouped)
+│   └── (public)/           # Public routes
+│
+└── test/                   # Test utilities and mocks
+    ├── mocks/
+    ├── fixtures/
+    └── utils/
+```
+
+## Common Anti-Patterns to Avoid
+
+### The God Component
+
+```tsx
+// ❌ One massive component doing everything
+function App() {
+  const [user, setUser] = useState(null)
+  const [products, setProducts] = useState([])
+  const [cart, setCart] = useState([])
+  const [modal, setModal] = useState(false)
+  // ... 300 lines of mixed concerns
+}
+```
+
+### Dumping Everything in `components/`
+
+```
+components/
+├── Button.tsx
+├── Header.tsx
+├── UserProfileCard.tsx
+├── useAuth.ts          ← hooks don't belong here
+├── formatDate.ts       ← utils don't belong here
+├── UserService.ts      ← services don't belong here
+└── types.ts            ← types don't belong here
+```
+
+### Deep Relative Imports
+
+```ts
+// ❌ Breaks when files move, hard to read
+import { something } from '../../../../shared/utils/something'
+
+// ✅ Use path aliases
+import { something } from '@/shared/utils/something'
+```
+
+### Feature Folders Importing From Each Other
+
+```ts
+// ❌ Creates tight coupling between features
+// features/cart/hooks/useCart.ts
+import { useUserProfile } from '@/features/auth/hooks/useUserProfile'
+
+// ✅ Use shared layer for cross-feature needs
+import { useUserProfile } from '@/shared/hooks/useUserProfile'
+```
+
+<Callout type="success" title="Start simple, refactor as needed">
+Don't over-engineer the structure from day one. Start with a type-based structure. When you notice folders becoming unwieldy or features being hard to delete, migrate to feature-based. Good structure emerges from the codebase's natural boundaries.
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "What is the difference between type-based and feature-based project structure in React?",
+    answer: "Type-based structure groups files by their kind — all components in one folder, all hooks in another, all utilities together. It's simple to start but scales poorly: as the app grows, folders become enormous and files for one feature are scattered everywhere. Feature-based structure groups all files for one domain (auth, cart, products) together — components, hooks, types, and API calls for that feature live in the same folder. This makes features self-contained: you can delete a feature by deleting its folder, and multiple teams can work in parallel with minimal conflicts.",
+    level: "junior"
+  },
+  {
+    question: "What are barrel files (index.ts) and what are the trade-offs?",
+    answer: "Barrel files are index.ts files that re-export from multiple files in a folder, creating a clean public API. Instead of `import { Button } from '@/components/ui/Button/Button'`, consumers write `import { Button } from '@/components/ui/Button'`. Benefits: cleaner imports, hides internal file structure, allows refactoring internals without updating all consumers. Trade-offs: can harm tree-shaking if the bundler doesn't properly handle re-exports (imports the entire barrel even if only one thing is needed), adds indirection, can create circular dependency issues. Mitigation: configure `sideEffects: false` in package.json and verify your bundler is tree-shaking correctly.",
+    level: "mid"
+  },
+  {
+    question: "How would you structure a React project that will be maintained by 8 engineers working on 5 different features simultaneously?",
+    answer: "I would use a feature-based structure with a strict shared layer. Each feature gets its own folder (features/auth, features/billing, etc.) with internal components, hooks, API calls, types, and store slices. Features expose only what's needed via an index.ts barrel. Cross-feature shared code lives in a shared/ folder — features never import directly from each other to avoid coupling. I'd enforce this with ESLint (eslint-plugin-boundaries or import/no-relative-parent-imports rules). Pages are thin orchestrators that compose from features. Path aliases (@/) eliminate relative import fragility. Each feature folder can be independently owned by a team pair, minimizing merge conflicts. CI checks would include architecture lint rules to prevent regression.",
+    level: "senior"
+  }
+]} />

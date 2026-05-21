@@ -1,0 +1,96 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --scrollbar-thumb: #d1d5db;
+    --scrollbar-track: transparent;
+  }
+
+  .dark {
+    --scrollbar-thumb: #374151;
+    --scrollbar-track: transparent;
+    color-scheme: dark;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply antialiased font-sans;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  * {
+    @apply box-border;
+  }
+
+  /* Custom scrollbars */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #9ca3af;
+  }
+
+  /* Focus visible */
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand-500 ring-offset-2 ring-offset-white dark:ring-offset-gray-950;
+  }
+
+  /* Selection */
+  ::selection {
+    @apply bg-brand-100 dark:bg-brand-900 text-brand-900 dark:text-brand-100;
+  }
+}
+
+@layer components {
+  /* Mermaid diagram styling */
+  .mermaid-diagram svg {
+    @apply max-w-full;
+  }
+
+  /* Code blocks from syntax highlighter */
+  .react-syntax-highlighter-line-number {
+    @apply select-none;
+  }
+
+  /* Sandpack overrides */
+  .sp-wrapper {
+    @apply rounded-xl overflow-hidden;
+  }
+
+  /* Prose content */
+  .prose-content > *:first-child {
+    @apply mt-0;
+  }
+}
+
+@layer utilities {
+  .scroll-mt-20 {
+    scroll-margin-top: 5rem;
+  }
+
+  .animate-fade-in {
+    animation: fadeIn 0.3s ease-in-out;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+}

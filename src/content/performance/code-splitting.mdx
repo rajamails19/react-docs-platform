@@ -1,0 +1,363 @@
+---
+title: Code Splitting
+description: Reduce initial bundle size with lazy loading, dynamic imports, and React.lazy + Suspense.
+category: Performance
+order: 1
+slug: performance/code-splitting
+difficulty: advanced
+estimatedTime: 15
+tags: [code splitting, lazy loading, suspense, dynamic import, bundle size, performance]
+lastUpdated: 2024-01-15
+---
+
+# Code Splitting
+
+Code splitting breaks your JavaScript bundle into smaller chunks that load on demand. Instead of sending 2MB of JavaScript on the first page load, you send only what's needed for the current view.
+
+<Callout type="info" title="Why it matters">
+Every additional 100KB of JavaScript adds ~1 second of parsing time on low-end mobile devices. Code splitting is one of the highest-ROI performance optimizations for React apps.
+</Callout>
+
+## The Problem: One Big Bundle
+
+Without code splitting, Vite/Webpack puts everything into one bundle:
+
+```
+dist/
+└── assets/
+    └── index-Cx7ygL2H.js   // 2.4 MB — user downloads ALL of this
+```
+
+The user downloading your settings page also downloads the code for your reports, admin panel, and every other route — even if they never visit them.
+
+## React.lazy + Suspense
+
+`React.lazy` creates a dynamically-imported component:
+
+```tsx
+import { lazy, Suspense } from 'react'
+
+// ❌ Eager import — always in the bundle
+import Dashboard from './pages/Dashboard'
+import Settings  from './pages/Settings'
+import Reports   from './pages/Reports'
+
+// ✅ Lazy imports — loaded on demand
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Settings  = lazy(() => import('./pages/Settings'))
+const Reports   = lazy(() => import('./pages/Reports'))
+
+function App() {
+  return (
+    <Suspense fallback={<PageSkeleton />}>
+      <Routes>
+        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/settings"  element={<Settings />} />
+        <Route path="/reports"   element={<Reports />} />
+      </Routes>
+    </Suspense>
+  )
+}
+```
+
+Result:
+```
+dist/
+└── assets/
+    ├── index-Cx7.js          // 380 KB — initial bundle
+    ├── Dashboard-D8k.js      //  95 KB — loaded on /dashboard
+    ├── Settings-B3m.js       //  42 KB — loaded on /settings
+    └── Reports-A7q.js        // 210 KB — loaded on /reports
+```
+
+## Granular Splitting Strategies
+
+### Route-level splitting (most impactful)
+
+```tsx
+// All routes are lazy-loaded
+const Home         = lazy(() => import('@/pages/Home'))
+const UserProfile  = lazy(() => import('@/pages/UserProfile'))
+const AdminDashboard = lazy(() => import('@/pages/admin/Dashboard'))  // large admin bundle
+const Analytics    = lazy(() => import('@/pages/Analytics'))
+
+// Wrap entire router in one Suspense
+<Suspense fallback={<AppShell loading />}>
+  <Routes>{/* ... */}</Routes>
+</Suspense>
+```
+
+### Component-level splitting (heavy widgets)
+
+```tsx
+// Heavy third-party components
+const RichTextEditor = lazy(() => import('./RichTextEditor'))   // includes ProseMirror
+const DataGrid       = lazy(() => import('./DataGrid'))         // includes AG Grid
+const PDFViewer      = lazy(() => import('./PDFViewer'))        // includes pdf.js
+
+function DocumentEditor({ type }: { type: 'editor' | 'pdf' }) {
+  return (
+    <Suspense fallback={<div>Loading editor...</div>}>
+      {type === 'editor' ? <RichTextEditor /> : <PDFViewer />}
+    </Suspense>
+  )
+}
+```
+
+### Conditional feature splitting
+
+```tsx
+// Load admin features only for admin users
+function App() {
+  const { user } = useAuth()
+
+  const AdminPanel = user.role === 'admin'
+    ? lazy(() => import('./AdminPanel'))
+    : null
+
+  return (
+    <Suspense fallback={null}>
+      {AdminPanel && <AdminPanel />}
+    </Suspense>
+  )
+}
+```
+
+## Prefetching
+
+Start loading chunks before the user needs them:
+
+```tsx
+// Prefetch on hover (user likely to click)
+function NavLink({ to, children }: { to: string; children: React.ReactNode }) {
+  const prefetch = () => {
+    // Dynamically import to start the download without rendering
+    if (to === '/dashboard') import('./pages/Dashboard')
+    if (to === '/reports')   import('./pages/Reports')
+  }
+
+  return (
+    <Link to={to} onMouseEnter={prefetch}>
+      {children}
+    </Link>
+  )
+}
+```
+
+## Vite Build Analysis
+
+```bash
+# Generate bundle analyzer
+npm install --save-dev rollup-plugin-visualizer
+
+# vite.config.ts
+import { visualizer } from 'rollup-plugin-visualizer'
+
+export default defineConfig({
+  plugins: [
+    react(),
+    visualizer({ open: true, gzipSize: true, brotliSize: true }),
+  ],
+})
+
+# After build, visualizer opens a treemap of your bundle
+npm run build
+```
+
+## Error Boundaries for Lazy Components
+
+What if the lazy chunk fails to load (network error)?
+
+```tsx
+class ChunkErrorBoundary extends React.Component<
+  { children: ReactNode; fallback: ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false }
+
+  static getDerivedStateFromError() {
+    return { hasError: true }
+  }
+
+  componentDidCatch(error: Error) {
+    // Log chunk load errors to Sentry
+    if (error.name === 'ChunkLoadError') {
+      Sentry.captureException(error)
+      // Optional: auto-refresh to get fresh chunk
+      window.location.reload()
+    }
+  }
+
+  render() {
+    if (this.state.hasError) return this.props.fallback
+    return this.props.children
+  }
+}
+
+// Usage
+<ChunkErrorBoundary fallback={<ErrorPage />}>
+  <Suspense fallback={<LoadingSpinner />}>
+    <LazyRoute />
+  </Suspense>
+</ChunkErrorBoundary>
+```
+
+## Bundle Size Best Practices
+
+```tsx
+// ❌ Import entire lodash — 69KB
+import _ from 'lodash'
+const result = _.groupBy(items, 'category')
+
+// ✅ Import only what you need — 1.5KB
+import groupBy from 'lodash/groupBy'
+const result = groupBy(items, 'category')
+
+// ✅ Even better — use native equivalents
+const result = Object.groupBy(items, item => item.category)  // ES2024
+
+// ❌ Import entire date-fns — 80KB
+import { format } from 'date-fns'
+
+// ✅ Tree-shake correctly (date-fns v3 is ESM-first)
+import { format } from 'date-fns'  // only format is bundled with proper bundler
+```
+
+## Interactive Example — lazy + Suspense
+
+Watch how Suspense shows a fallback while the lazy component "loads" (simulated with a delay):
+
+<LiveEditor code={`import { lazy, Suspense, useState, useEffect } from 'react'
+
+// Simulate a slow import by wrapping in a delayed promise
+function simulateLazyImport<T>(module: T, delay: number): Promise<{ default: T }> {
+  return new Promise(resolve =>
+    setTimeout(() => resolve({ default: module }), delay)
+  )
+}
+
+// "Heavy" components that load on demand
+const HeavyChart = lazy(() =>
+  simulateLazyImport(
+    function Chart() {
+      const bars = [65, 45, 80, 92, 38, 71, 55]
+      const max = Math.max(...bars)
+      return (
+        <div style={{ padding: 16 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>📊 Analytics Chart (lazily loaded)</div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', height: 80 }}>
+            {bars.map((h, i) => (
+              <div key={i} style={{ flex: 1, height: \`\${(h / max) * 100}%\`, background: '#6366f1', borderRadius: '4px 4px 0 0', transition: 'height 0.5s ease' }} />
+            ))}
+          </div>
+        </div>
+      )
+    }, 1200
+  )
+)
+
+const HeavyTable = lazy(() =>
+  simulateLazyImport(
+    function DataTable() {
+      const rows = Array.from({ length: 5 }, (_, i) => ({ id: i + 1, name: \`User \${i + 1}\`, score: Math.floor(Math.random() * 100) }))
+      return (
+        <div style={{ padding: 16 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>📋 Data Table (lazily loaded)</div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead><tr style={{ background: '#f3f4f6' }}>{['ID', 'Name', 'Score'].map(h => <th key={h} style={{ padding: '6px 10px', textAlign: 'left' }}>{h}</th>)}</tr></thead>
+            <tbody>{rows.map(r => <tr key={r.id} style={{ borderTop: '1px solid #e5e7eb' }}><td style={{ padding: '6px 10px' }}>{r.id}</td><td style={{ padding: '6px 10px' }}>{r.name}</td><td style={{ padding: '6px 10px' }}>{r.score}</td></tr>)}</tbody>
+          </table>
+        </div>
+      )
+    }, 800
+  )
+)
+
+function Skeleton({ label }: { label: string }) {
+  return (
+    <div style={{ padding: 16 }}>
+      <div style={{ width: '40%', height: 14, background: '#e5e7eb', borderRadius: 4, marginBottom: 12, animation: 'pulse 1.2s ease infinite' }} />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {[100, 85, 70].map((w, i) => (
+          <div key={i} style={{ width: \`\${w}%\`, height: 12, background: '#f3f4f6', borderRadius: 4, animation: 'pulse 1.2s ease infinite' }} />
+        ))}
+      </div>
+      <style>{'@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }'}</style>
+    </div>
+  )
+}
+
+export default function App() {
+  const [view, setView] = useState<null | 'chart' | 'table'>(null)
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', maxWidth: 420 }}>
+      <div style={{ display: 'flex', gap: 8, padding: 16 }}>
+        <button onClick={() => setView('chart')} disabled={view === 'chart'}
+          style={{ padding: '8px 16px', background: view === 'chart' ? '#6366f1' : '#f3f4f6', color: view === 'chart' ? 'white' : '#374151', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+          Load Chart (~1.2s)
+        </button>
+        <button onClick={() => setView('table')} disabled={view === 'table'}
+          style={{ padding: '8px 16px', background: view === 'table' ? '#6366f1' : '#f3f4f6', color: view === 'table' ? 'white' : '#374151', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+          Load Table (~0.8s)
+        </button>
+        {view && <button onClick={() => setView(null)} style={{ padding: '8px 12px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>Reset</button>}
+      </div>
+
+      <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, margin: '0 16px 16px', minHeight: 120 }}>
+        {!view && <div style={{ padding: 20, color: '#9ca3af', fontSize: 14 }}>Click a button to lazy-load a component</div>}
+        <Suspense fallback={view === 'chart' ? <Skeleton label="chart" /> : <Skeleton label="table" />}>
+          {view === 'chart' && <HeavyChart />}
+          {view === 'table' && <HeavyTable />}
+        </Suspense>
+      </div>
+
+      <p style={{ padding: '0 16px 16px', fontSize: 12, color: '#9ca3af', margin: 0 }}>
+        Suspense shows the skeleton while the component loads. The code is "downloaded" (simulated with delay) only when requested.
+      </p>
+    </div>
+  )
+}`} />
+
+<Challenge title="Add error boundary for failed lazy imports">
+Network errors can cause `lazy()` to reject. Wrap the `<Suspense>` in an error boundary that shows a "Failed to load — retry" UI.
+
+The error boundary should have a `reset` method that clears its error state, allowing the user to retry loading.
+
+```tsx
+class LazyErrorBoundary extends React.Component<
+  { children: ReactNode; fallback: (retry: () => void) => ReactNode },
+  { error: Error | null }
+> {
+  // implement getDerivedStateFromError + handleReset
+}
+```
+</Challenge>
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- Code splitting reduces initial bundle size by loading code only when needed
+- `React.lazy()` + `Suspense` is the standard pattern for route and component splitting
+- Always split at route boundaries first — highest impact per effort
+- Prefetch on hover for near-instant navigation after first load
+- Use bundle analysis tools to identify large dependencies and optimize them
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "What is code splitting and how does React.lazy implement it?",
+    answer: "Code splitting divides your JavaScript bundle into smaller chunks that load on demand. React.lazy() accepts a function that calls import() (dynamic import) which returns a Promise resolving to a module. When the lazy component is first rendered, React triggers the import, and while waiting, shows the nearest Suspense fallback. After the module loads, React renders the actual component. This creates separate JS files in the build that the browser only fetches when needed.",
+    level: "junior"
+  },
+  {
+    question: "How do you handle errors when lazy-loaded chunks fail to load?",
+    answer: "Use an Error Boundary wrapping the Suspense component. When a lazy chunk fails (ChunkLoadError — often from network issues or stale deployments), the error boundary's componentDidCatch fires. Common strategies: (1) Show an error UI with a retry button that calls window.location.reload() to get fresh chunks. (2) Log to error tracking (Sentry) with the error name to distinguish chunk errors from app errors. (3) Detect ChunkLoadError specifically and auto-reload — this handles the common case where users have old cached HTML but new chunk hashes in the latest deploy.",
+    level: "mid"
+  },
+  {
+    question: "What strategies would you use to optimize bundle size for an enterprise SPA?",
+    answer: "Layered approach: (1) Route-based splitting for all pages. (2) Component splitting for heavy widgets (editors, grids, charts). (3) Bundle analysis with rollup-plugin-visualizer to find large dependencies. (4) Replace heavy libraries with lighter alternatives (dayjs for moment.js, date-fns for lodash/date). (5) Tree-shaking: ensure dependencies are ESM (check package.json 'module' or 'exports' field). (6) Preload critical chunks with <link rel='modulepreload'>. (7) HTTP/2 push or prefetching for next-likely routes. (8) Compression: Brotli > gzip, set up on CDN. Target: initial JS < 150KB compressed for above-the-fold content.",
+    level: "enterprise"
+  }
+]} />

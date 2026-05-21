@@ -1,0 +1,345 @@
+---
+title: Compound Components
+description: Build flexible, composable component APIs with the Compound Components pattern using Context.
+category: Design Patterns
+order: 3
+slug: patterns/compound
+difficulty: enterprise
+estimatedTime: 18
+tags: [compound components, design patterns, context, flexible api, component library]
+lastUpdated: 2024-01-15
+---
+
+# Compound Components
+
+The **Compound Components** pattern creates a group of related components that work together through implicit shared state. It's how UI libraries like Radix UI, Headless UI, and Reach UI are built — and what separates a great component API from a rigid one.
+
+## The Problem: Prop Hell
+
+```tsx
+// ❌ Everything crammed into one component
+<Select
+  options={options}
+  value={value}
+  onChange={onChange}
+  placeholder="Select..."
+  searchable
+  clearable
+  renderOption={(opt) => <CustomOption opt={opt} />}
+  renderValue={(val) => <CustomValue val={val} />}
+  groupBy="category"
+  maxHeight={300}
+  loading={isLoading}
+  emptyMessage="No results"
+  footer={<a href="/add">+ Add new</a>}
+  onOpen={handleOpen}
+  onClose={handleClose}
+  // ...15 more props
+/>
+```
+
+Every new use case requires a new prop. The API becomes unpredictable and the component becomes impossible to customize without forking.
+
+## The Solution: Compound Components
+
+```tsx
+// ✅ Composable API — consumers control the structure
+<Select value={value} onChange={onChange}>
+  <Select.Trigger placeholder="Select an option..." />
+  <Select.Content>
+    <Select.Search />
+    {options.map(opt => (
+      <Select.Option key={opt.value} value={opt.value}>
+        <Icon name={opt.icon} />
+        {opt.label}
+      </Select.Option>
+    ))}
+    <Select.Empty>No results found</Select.Empty>
+    <Select.Footer>
+      <a href="/add">+ Add item</a>
+    </Select.Footer>
+  </Select.Content>
+</Select>
+```
+
+The consumer owns the structure. The components share state through Context.
+
+## Implementation: Tabs Component
+
+```tsx
+// 1. Define the shared state interface
+interface TabsContextValue {
+  activeTab: string
+  setActiveTab: (id: string) => void
+}
+
+// 2. Create Context
+const TabsContext = createContext<TabsContextValue | null>(null)
+
+// 3. Create a hook for children to access shared state
+function useTabsContext() {
+  const ctx = useContext(TabsContext)
+  if (!ctx) throw new Error('Tabs compound components must be used within <Tabs>')
+  return ctx
+}
+
+// 4. Root component — owns the state
+function Tabs({
+  children,
+  defaultTab,
+  onChange,
+}: {
+  children: React.ReactNode
+  defaultTab: string
+  onChange?: (tab: string) => void
+}) {
+  const [activeTab, setActiveTab] = useState(defaultTab)
+
+  const handleChange = (id: string) => {
+    setActiveTab(id)
+    onChange?.(id)
+  }
+
+  return (
+    <TabsContext.Provider value={{ activeTab, setActiveTab: handleChange }}>
+      <div className="tabs">{children}</div>
+    </TabsContext.Provider>
+  )
+}
+
+// 5. Sub-components consume shared state via Context
+function TabList({ children }: { children: React.ReactNode }) {
+  return <div role="tablist" className="tab-list">{children}</div>
+}
+
+function Tab({ id, children }: { id: string; children: React.ReactNode }) {
+  const { activeTab, setActiveTab } = useTabsContext()
+  const isActive = activeTab === id
+
+  return (
+    <button
+      role="tab"
+      aria-selected={isActive}
+      aria-controls={`panel-${id}`}
+      onClick={() => setActiveTab(id)}
+      className={`tab ${isActive ? 'tab-active' : ''}`}
+    >
+      {children}
+    </button>
+  )
+}
+
+function TabPanels({ children }: { children: React.ReactNode }) {
+  return <div className="tab-panels">{children}</div>
+}
+
+function TabPanel({ id, children }: { id: string; children: React.ReactNode }) {
+  const { activeTab } = useTabsContext()
+  if (activeTab !== id) return null
+
+  return (
+    <div role="tabpanel" id={`panel-${id}`} className="tab-panel">
+      {children}
+    </div>
+  )
+}
+
+// 6. Attach sub-components as static properties
+Tabs.List   = TabList
+Tabs.Tab    = Tab
+Tabs.Panels = TabPanels
+Tabs.Panel  = TabPanel
+```
+
+## Using the Compound Component
+
+```tsx
+// Clean, readable, flexible consumer API
+function SettingsPage() {
+  return (
+    <Tabs defaultTab="profile" onChange={tab => analytics.track('tab_change', { tab })}>
+      <Tabs.List>
+        <Tabs.Tab id="profile">
+          <UserIcon size={14} /> Profile
+        </Tabs.Tab>
+        <Tabs.Tab id="security">
+          <ShieldIcon size={14} /> Security
+        </Tabs.Tab>
+        <Tabs.Tab id="billing">
+          <CreditCardIcon size={14} /> Billing
+        </Tabs.Tab>
+      </Tabs.List>
+
+      <Tabs.Panels>
+        <Tabs.Panel id="profile">
+          <ProfileForm />
+        </Tabs.Panel>
+        <Tabs.Panel id="security">
+          <SecuritySettings />
+        </Tabs.Panel>
+        <Tabs.Panel id="billing">
+          <BillingDetails />
+        </Tabs.Panel>
+      </Tabs.Panels>
+    </Tabs>
+  )
+}
+```
+
+## When to Use Compound Components
+
+| Scenario | Good fit? |
+|---|---|
+| Complex UI with many configuration options | ✅ Yes |
+| Consumer needs control over structure/layout | ✅ Yes |
+| Multiple sub-components share state | ✅ Yes |
+| Simple button or badge | ❌ Overkill |
+| State has no sub-components | ❌ Not applicable |
+| Component library being shipped to other teams | ✅ Excellent choice |
+
+## TypeScript Typing for Compound Components
+
+```tsx
+// Type the static sub-components on the namespace
+namespace Tabs {
+  export interface TabsProps { children: React.ReactNode; defaultTab: string }
+  export interface TabProps  { id: string; children: React.ReactNode }
+  export interface PanelProps { id: string; children: React.ReactNode }
+}
+
+// Typed component with sub-components
+const Tabs: React.FC<Tabs.TabsProps> & {
+  List:   typeof TabList
+  Tab:    typeof Tab
+  Panels: typeof TabPanels
+  Panel:  typeof TabPanel
+} = ({ children, defaultTab }) => {
+  // ...
+}
+```
+
+## Interactive Example — Tabs Compound Component
+
+A fully working `Tabs` compound component — the consumer controls the structure:
+
+<LiveEditor code={`import { createContext, useContext, useState } from 'react'
+
+// ─── Context ──────────────────────────────────────────────
+const TabsCtx = createContext<{ active: string; setActive: (id: string) => void } | null>(null)
+const useTabsCtx = () => { const c = useContext(TabsCtx); if (!c) throw new Error('Must be inside Tabs'); return c }
+
+// ─── Tabs compound component ──────────────────────────────
+function Tabs({ children, defaultTab }: { children: React.ReactNode; defaultTab: string }) {
+  const [active, setActive] = useState(defaultTab)
+  return <TabsCtx.Provider value={{ active, setActive }}><div>{children}</div></TabsCtx.Provider>
+}
+
+Tabs.List = function TabList({ children }: { children: React.ReactNode }) {
+  return <div style={{ display: 'flex', gap: 4, borderBottom: '2px solid #e5e7eb', marginBottom: 16 }}>{children}</div>
+}
+
+Tabs.Tab = function Tab({ id, children }: { id: string; children: React.ReactNode }) {
+  const { active, setActive } = useTabsCtx()
+  const isActive = active === id
+  return (
+    <button onClick={() => setActive(id)} style={{
+      padding: '8px 16px', border: 'none', background: 'none', cursor: 'pointer',
+      fontWeight: isActive ? 700 : 400, fontSize: 14,
+      color: isActive ? '#6366f1' : '#6b7280',
+      borderBottom: isActive ? '2px solid #6366f1' : '2px solid transparent',
+      marginBottom: -2, transition: 'all 0.15s',
+    }}>{children}</button>
+  )
+}
+
+Tabs.Panels = function TabPanels({ children }: { children: React.ReactNode }) {
+  return <div>{children}</div>
+}
+
+Tabs.Panel = function TabPanel({ id, children }: { id: string; children: React.ReactNode }) {
+  const { active } = useTabsCtx()
+  if (active !== id) return null
+  return <div style={{ animation: 'fadeIn 0.15s ease', padding: '0 4px' }}>{children}</div>
+}
+
+// ─── Usage ────────────────────────────────────────────────
+function PanelContent({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div>
+      <h4 style={{ margin: '0 0 8px', fontSize: 15, color: '#374151' }}>{title}</h4>
+      <ul style={{ margin: 0, padding: '0 0 0 16px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {items.map(item => <li key={item} style={{ fontSize: 14, color: '#6b7280' }}>{item}</li>)}
+      </ul>
+    </div>
+  )
+}
+
+export default function App() {
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: 20, maxWidth: 440 }}>
+      <style>{'@keyframes fadeIn { from { opacity: 0; transform: translateY(4px) } to { opacity: 1; transform: none } }'}</style>
+
+      <Tabs defaultTab="hooks">
+        <Tabs.List>
+          <Tabs.Tab id="hooks">Hooks</Tabs.Tab>
+          <Tabs.Tab id="patterns">Patterns</Tabs.Tab>
+          <Tabs.Tab id="performance">Performance</Tabs.Tab>
+        </Tabs.List>
+
+        <Tabs.Panels>
+          <Tabs.Panel id="hooks">
+            <PanelContent title="Core Hooks" items={['useState', 'useEffect', 'useRef', 'useMemo', 'useCallback', 'useContext', 'useReducer']} />
+          </Tabs.Panel>
+          <Tabs.Panel id="patterns">
+            <PanelContent title="React Patterns" items={['Compound Components', 'Render Props', 'HOC', 'Custom Hooks', 'Context']} />
+          </Tabs.Panel>
+          <Tabs.Panel id="performance">
+            <PanelContent title="Performance Tools" items={['React.memo', 'useMemo', 'useCallback', 'Lazy loading', 'Virtualization']} />
+          </Tabs.Panel>
+        </Tabs.Panels>
+      </Tabs>
+
+      <p style={{ marginTop: 16, fontSize: 12, color: '#9ca3af' }}>
+        The consumer controls layout. Tabs shares state invisibly through Context.
+      </p>
+    </div>
+  )
+}`} />
+
+<Challenge title="Add a controlled mode">
+Make `Tabs` support both uncontrolled (internal state) and controlled (external state) modes:
+
+```tsx
+interface TabsProps {
+  children:    React.ReactNode
+  defaultTab?: string      // uncontrolled
+  activeTab?:  string      // controlled
+  onTabChange?: (id: string) => void
+}
+```
+
+When `activeTab` is provided, use it instead of internal state. Call `onTabChange` when a tab is clicked.
+</Challenge>
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- Compound Components share state implicitly through Context, eliminating prop drilling
+- The pattern gives consumers **full control over structure** while hiding state complexity
+- It scales perfectly for component libraries where consumers have diverse layout needs
+- The `throw new Error` in the Context hook provides a clear DX when misused
+- Libraries like Radix UI, Headless UI, and Reach UI are all built on this pattern
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "What is the Compound Components pattern and what problem does it solve?",
+    answer: "Compound Components is a pattern where related components share implicit state through Context. The parent component owns state; children access it via useContext. It solves 'prop hell' — when a component accumulates dozens of props for every possible configuration. With Compound Components, consumers control the structure and composition, picking only the sub-components they need, while the internal state synchronization is handled transparently. This is how Headless UI, Radix, and Reach UI build flexible, accessible components.",
+    level: "mid"
+  },
+  {
+    question: "How does Compound Components compare to the render props pattern?",
+    answer: "Both share state with children, but differently. Render props pass state as function arguments: <Toggle>{({ on, toggle }) => <Button onClick={toggle}>{on ? 'On' : 'Off'}</Button>}</Toggle>. Compound Components share state through Context: no explicit passing, children access it internally. Compound Components produce cleaner JSX, better readability, and work naturally with TypeScript. Render props have deeper nesting ('callback hell'), but give finer-grained control. Modern React prefers Compound Components + Hooks over render props for most cases.",
+    level: "senior"
+  }
+]} />

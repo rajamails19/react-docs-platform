@@ -1,0 +1,341 @@
+---
+title: useRef Hook
+description: Access DOM nodes directly and persist mutable values across renders without triggering re-renders.
+category: Hooks
+order: 3
+slug: hooks/useref
+difficulty: intermediate
+estimatedTime: 12
+tags: [useref, ref, dom, mutable, forwardref, imperativehandle]
+lastUpdated: 2024-01-15
+---
+
+# useRef
+
+`useRef` returns a **mutable ref object** whose `.current` property is initialized with the given value. The key difference from state: **changing `.current` does NOT cause a re-render**.
+
+```tsx
+const ref = useRef(initialValue)
+// ref.current === initialValue
+```
+
+## Two Primary Use Cases
+
+### 1. Accessing DOM nodes
+
+```tsx
+function AutoFocusInput() {
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    inputRef.current?.focus()   // directly access the DOM element
+  }, [])
+
+  return <input ref={inputRef} placeholder="I auto-focus on mount" />
+}
+```
+
+### 2. Storing mutable values without re-renders
+
+```tsx
+function StopWatch() {
+  const [time, setTime]   = useState(0)
+  const intervalRef       = useRef<NodeJS.Timeout | null>(null)  // mutable, no re-render
+
+  const start = () => {
+    intervalRef.current = setInterval(() => setTime(t => t + 1), 1000)
+  }
+  const stop = () => {
+    if (intervalRef.current) clearInterval(intervalRef.current)
+  }
+
+  return (
+    <>
+      <p>{time}s</p>
+      <button onClick={start}>Start</button>
+      <button onClick={stop}>Stop</button>
+    </>
+  )
+}
+```
+
+## ref vs state
+
+| | `useRef` | `useState` |
+|---|---|---|
+| Triggers re-render? | ❌ No | ✅ Yes |
+| Survives re-renders? | ✅ Yes | ✅ Yes |
+| Synchronous access | ✅ Always current | ❌ Batch-delayed |
+| Use case | DOM access, timer IDs, previous values | UI state |
+
+## Common Patterns
+
+### Track previous value
+
+```tsx
+function usePrevious<T>(value: T) {
+  const ref = useRef<T | undefined>(undefined)
+
+  useEffect(() => {
+    ref.current = value   // runs AFTER render, stores current as "previous" for next render
+  })
+
+  return ref.current   // returns value from previous render
+}
+
+// Usage
+function Counter() {
+  const [count, setCount] = useState(0)
+  const prev = usePrevious(count)
+
+  return <p>{prev} → {count}</p>
+}
+```
+
+### Avoid stale closures in effects
+
+```tsx
+function Component({ onSave }: { onSave: (data: Data) => void }) {
+  const onSaveRef = useRef(onSave)
+
+  // Keep ref current without causing effect to re-run
+  useEffect(() => { onSaveRef.current = onSave })
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      onSaveRef.current(getData())  // always calls the latest onSave
+    }, 5000)
+    return () => clearInterval(id)
+  }, [])  // no dependency on onSave — won't re-create interval on every render
+}
+```
+
+### Measure DOM elements
+
+```tsx
+function useElementSize() {
+  const ref = useRef<HTMLDivElement>(null)
+  const [size, setSize] = useState({ width: 0, height: 0 })
+
+  useEffect(() => {
+    if (!ref.current) return
+    const observer = new ResizeObserver(([entry]) => {
+      setSize({ width: entry.contentRect.width, height: entry.contentRect.height })
+    })
+    observer.observe(ref.current)
+    return () => observer.disconnect()
+  }, [])
+
+  return { ref, ...size }
+}
+```
+
+## Interactive Examples
+
+### Focus a DOM node
+
+Click the button to programmatically focus the input — the classic useRef use case:
+
+<LiveEditor code={`import { useRef } from 'react'
+
+export default function FocusDemo() {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const colorRef = useRef<HTMLInputElement>(null)
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input
+          ref={inputRef}
+          placeholder="Click the button to focus me"
+          style={{ flex: 1, padding: '8px 12px', border: '2px solid #e5e7eb', borderRadius: 8, outline: 'none', fontSize: 14 }}
+          onFocus={e => (e.target.style.borderColor = '#6366f1')}
+          onBlur={e  => (e.target.style.borderColor = '#e5e7eb')}
+        />
+        <button
+          onClick={() => inputRef.current?.focus()}
+          style={{ padding: '8px 16px', background: '#6366f1', color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}
+        >
+          Focus ↗
+        </button>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input
+          ref={colorRef}
+          type="color"
+          defaultValue="#6366f1"
+          style={{ width: 44, height: 44, border: 'none', padding: 2, cursor: 'pointer', borderRadius: 8 }}
+        />
+        <button
+          onClick={() => colorRef.current?.click()}
+          style={{ padding: '8px 16px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}
+        >
+          Open color picker via ref
+        </button>
+      </div>
+
+      <p style={{ margin: 0, fontSize: 13, color: '#6b7280' }}>
+        Both buttons call <code>.focus()</code> or <code>.click()</code> on the actual DOM node via <code>ref.current</code>.
+      </p>
+    </div>
+  )
+}`} />
+
+### Stopwatch — ref for timer IDs
+
+The interval ID lives in a ref so starting/stopping doesn't trigger re-renders:
+
+<LiveEditor code={`import { useState, useRef } from 'react'
+
+export default function Stopwatch() {
+  const [time, setTime]     = useState(0)
+  const [running, setRunning] = useState(false)
+  const intervalRef           = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const start = () => {
+    if (running) return
+    setRunning(true)
+    intervalRef.current = setInterval(() => setTime(t => t + 10), 10)
+  }
+
+  const stop = () => {
+    if (intervalRef.current) clearInterval(intervalRef.current)
+    setRunning(false)
+  }
+
+  const reset = () => {
+    stop()
+    setTime(0)
+  }
+
+  const fmt = (ms: number) => {
+    const min  = Math.floor(ms / 60000).toString().padStart(2, '0')
+    const sec  = Math.floor((ms % 60000) / 1000).toString().padStart(2, '0')
+    const cent = Math.floor((ms % 1000) / 10).toString().padStart(2, '0')
+    return \`\${min}:\${sec}.\${cent}\`
+  }
+
+  return (
+    <div style={{ fontFamily: 'monospace', textAlign: 'center', padding: 32 }}>
+      <div style={{ fontSize: 56, fontWeight: 700, letterSpacing: 2, color: running ? '#6366f1' : '#111', marginBottom: 24 }}>
+        {fmt(time)}
+      </div>
+      <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+        {!running ? (
+          <button onClick={start} style={{ padding: '10px 24px', background: '#22c55e', color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 15 }}>
+            ▶ Start
+          </button>
+        ) : (
+          <button onClick={stop} style={{ padding: '10px 24px', background: '#ef4444', color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 15 }}>
+            ⏸ Stop
+          </button>
+        )}
+        <button onClick={reset} style={{ padding: '10px 24px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 15 }}>
+          ↺ Reset
+        </button>
+      </div>
+      <p style={{ marginTop: 20, fontSize: 12, color: '#9ca3af' }}>
+        intervalRef.current holds the timer ID — changing it never causes a re-render
+      </p>
+    </div>
+  )
+}`} />
+
+<Challenge title="Track the previous value">
+Extend the Stopwatch above to also show the **previous time** reading when you click Stop.
+
+Use a second `useRef` to remember the time just before stopping.
+
+- When you click Stop, save the current `time` into `prevRef.current`
+- Render `"Last stopped at: {prevTime}"` below the timer
+- Notice: updating the ref doesn't cause an extra re-render
+
+```
+hint: After stop(), set prevRef.current = time
+```
+</Challenge>
+
+## forwardRef — Expose Refs to Parents
+
+When you need a parent to access a child's DOM node:
+
+```tsx
+// Define a component that forwards its ref to an inner DOM element
+const FancyInput = forwardRef<HTMLInputElement, { placeholder?: string }>(
+  ({ placeholder }, ref) => (
+    <div className="input-wrapper">
+      <input ref={ref} placeholder={placeholder} className="fancy-input" />
+    </div>
+  )
+)
+
+// Parent accesses the underlying <input>
+function Form() {
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  return (
+    <>
+      <FancyInput ref={inputRef} placeholder="Fancy!" />
+      <button onClick={() => inputRef.current?.focus()}>Focus</button>
+    </>
+  )
+}
+```
+
+## useImperativeHandle — Control Exposed API
+
+Limit what the parent can do with the ref:
+
+```tsx
+interface VideoHandle {
+  play: () => void
+  pause: () => void
+  seek: (seconds: number) => void
+}
+
+const VideoPlayer = forwardRef<VideoHandle, { src: string }>(({ src }, ref) => {
+  const videoRef = useRef<HTMLVideoElement>(null)
+
+  useImperativeHandle(ref, () => ({
+    play:  () => videoRef.current?.play(),
+    pause: () => videoRef.current?.pause(),
+    seek:  (s) => { if (videoRef.current) videoRef.current.currentTime = s },
+    // currentTime, volume, etc. are NOT exposed — parent can't access them
+  }))
+
+  return <video ref={videoRef} src={src} />
+})
+
+// Parent
+const playerRef = useRef<VideoHandle>(null)
+playerRef.current?.play()   // only the 3 exposed methods work
+```
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- `useRef` stores a mutable value that persists across renders without causing re-renders
+- Primary uses: accessing DOM elements directly and storing timer IDs / previous values
+- Use `forwardRef` to pass refs through component wrappers to underlying DOM nodes
+- Use `useImperativeHandle` to expose a controlled imperative API to parent components
+- Never read `ref.current` during render — it bypasses React's update cycle
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "What is useRef and how does it differ from useState?",
+    answer: "useRef returns a mutable object { current: initialValue } that persists for the lifetime of the component. Unlike useState, mutating ref.current does NOT trigger a re-render. Use ref when you need to store something that should persist across renders but shouldn't affect the UI when it changes: DOM element references, interval/timeout IDs, previous values, or any mutable value needed in event handlers/effects without causing re-renders.",
+    level: "junior"
+  },
+  {
+    question: "How do you use forwardRef and why is it necessary?",
+    answer: "forwardRef is needed because ref is a special prop in React (like key) — you can't pass it as a regular prop. When you write <Input ref={myRef} />, React doesn't pass ref to the Input component function. forwardRef wraps your component and receives ref as a second argument, which you can then forward to a DOM element or another ref. This is essential when building component libraries where consumers need to access underlying DOM elements for focus management, scrolling, or measurement.",
+    level: "mid"
+  },
+  {
+    question: "Explain the pattern of using useRef to avoid stale closures in effects.",
+    answer: "Stale closure problem: a useEffect with an empty dependency array captures the initial values of variables. If a callback prop (like onSave) changes, the effect still holds the old reference. The useRef pattern: store the current value of the callback in a ref (always updated via a separate effect or synchronously), then call ref.current() inside the long-lived effect. This gives you the latest callback without adding it as a dependency and re-creating the interval/subscription. This pattern appears in the React documentation and is used in libraries like React Query and Zustand.",
+    level: "senior"
+  }
+]} />

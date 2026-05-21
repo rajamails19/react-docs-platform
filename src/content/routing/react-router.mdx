@@ -1,0 +1,300 @@
+---
+title: React Router v6
+description: Add client-side routing to your React app with React Router v6 — routes, navigation, and params.
+category: Routing
+order: 1
+slug: routing/react-router
+difficulty: intermediate
+estimatedTime: 15
+tags: [react router, routing, navigation, spa, url params, nested routes]
+lastUpdated: 2024-01-15
+---
+
+# React Router v6
+
+React Router v6 is the standard routing library for React SPAs. It maps URL paths to components, handles navigation, and manages browser history.
+
+## Installation & Setup
+
+```bash
+npm install react-router-dom
+```
+
+```tsx
+// main.tsx
+import { BrowserRouter } from 'react-router-dom'
+
+createRoot(document.getElementById('root')!).render(
+  <BrowserRouter>
+    <App />
+  </BrowserRouter>
+)
+```
+
+## Core Routing Concepts
+
+```tsx
+// App.tsx
+import { Routes, Route, Navigate } from 'react-router-dom'
+import { lazy, Suspense } from 'react'
+
+const Home     = lazy(() => import('./pages/Home'))
+const About    = lazy(() => import('./pages/About'))
+const Products = lazy(() => import('./pages/Products'))
+const Product  = lazy(() => import('./pages/Product'))
+const NotFound = lazy(() => import('./pages/NotFound'))
+
+function App() {
+  return (
+    <Suspense fallback={<PageLoader />}>
+      <Routes>
+        <Route path="/"          element={<Home />} />
+        <Route path="/about"     element={<About />} />
+        <Route path="/products"  element={<Products />} />
+        <Route path="/products/:id" element={<Product />} />
+        <Route path="/404"       element={<NotFound />} />
+        <Route path="*"          element={<Navigate to="/404" replace />} />
+      </Routes>
+    </Suspense>
+  )
+}
+```
+
+## URL Parameters
+
+```tsx
+// Route: /products/:id
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
+
+function Product() {
+  const { id }      = useParams<{ id: string }>()
+  const [params, setParams] = useSearchParams()
+  const navigate    = useNavigate()
+  const tab         = params.get('tab') ?? 'overview'
+
+  // Programmatic navigation
+  const goBack = () => navigate(-1)
+  const goToCart = () => navigate('/cart', { state: { from: '/products' } })
+
+  return (
+    <div>
+      <h1>Product {id}</h1>
+      <div className="tabs">
+        {['overview', 'specs', 'reviews'].map(t => (
+          <button
+            key={t}
+            onClick={() => setParams({ tab: t })}  // URL: /products/1?tab=specs
+            className={tab === t ? 'active' : ''}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+```
+
+## Nested Routes
+
+```tsx
+// Layout component with Outlet
+import { Outlet, NavLink } from 'react-router-dom'
+
+function DashboardLayout() {
+  return (
+    <div className="dashboard">
+      <nav>
+        <NavLink to="overview"  className={({ isActive }) => isActive ? 'active' : ''}>Overview</NavLink>
+        <NavLink to="analytics" className={({ isActive }) => isActive ? 'active' : ''}>Analytics</NavLink>
+        <NavLink to="settings"  className={({ isActive }) => isActive ? 'active' : ''}>Settings</NavLink>
+      </nav>
+      <main>
+        <Outlet />  {/* child routes render here */}
+      </main>
+    </div>
+  )
+}
+
+// In your routes:
+<Route path="/dashboard" element={<DashboardLayout />}>
+  <Route index       element={<DashboardOverview />} />  {/* /dashboard */}
+  <Route path="analytics" element={<Analytics />} />      {/* /dashboard/analytics */}
+  <Route path="settings"  element={<Settings />} />       {/* /dashboard/settings */}
+</Route>
+```
+
+## Protected Routes
+
+```tsx
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth()
+  const location = useLocation()
+
+  if (!user) {
+    // Redirect to login, preserving intended destination
+    return <Navigate to="/login" state={{ from: location }} replace />
+  }
+
+  return <>{children}</>
+}
+
+// Usage
+<Route
+  path="/dashboard/*"
+  element={
+    <RequireAuth>
+      <DashboardLayout />
+    </RequireAuth>
+  }
+/>
+
+// After login, redirect to original destination:
+function LoginPage() {
+  const navigate  = useNavigate()
+  const location  = useLocation()
+  const from      = (location.state as { from?: Location })?.from?.pathname ?? '/dashboard'
+
+  const onLogin = async () => {
+    await login(credentials)
+    navigate(from, { replace: true })  // go back to where they were
+  }
+}
+```
+
+## Interactive Example — Client-Side Navigation
+
+A complete mini-app with navigation, URL params, and a 404 route (using MemoryRouter for the sandbox):
+
+<LiveEditor code={`import { MemoryRouter, Routes, Route, Link, useParams, useNavigate, Navigate } from 'react-router-dom'
+
+const products = [
+  { id: '1', name: 'React Handbook', price: 29, category: 'Books' },
+  { id: '2', name: 'TypeScript Mug', price: 15, category: 'Swag' },
+  { id: '3', name: 'Hooks Poster',   price: 12, category: 'Swag' },
+]
+
+function Nav() {
+  return (
+    <nav style={{ display: 'flex', gap: 16, padding: '10px 20px', background: '#6366f1', borderRadius: '12px 12px 0 0' }}>
+      {[['/', 'Home'], ['/products', 'Products'], ['/about', 'About']].map(([to, label]) => (
+        <Link key={to} to={to} style={{ color: 'white', textDecoration: 'none', fontSize: 14, fontWeight: 600 }}>{label}</Link>
+      ))}
+    </nav>
+  )
+}
+
+function Home() {
+  return (
+    <div style={{ padding: 20 }}>
+      <h2 style={{ margin: '0 0 8px' }}>Welcome!</h2>
+      <p style={{ color: '#6b7280', fontSize: 14 }}>Browse our products or read about us.</p>
+      <Link to="/products" style={{ color: '#6366f1', fontWeight: 600, fontSize: 14 }}>Browse products →</Link>
+    </div>
+  )
+}
+
+function Products() {
+  return (
+    <div style={{ padding: 20 }}>
+      <h2 style={{ margin: '0 0 12px', fontSize: 16 }}>Products</h2>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {products.map(p => (
+          <Link key={p.id} to={\`/products/\${p.id}\`}
+            style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', background: '#f9fafb', borderRadius: 8, textDecoration: 'none', color: 'inherit', border: '1px solid #e5e7eb', fontSize: 14 }}>
+            <span style={{ fontWeight: 600 }}>{p.name}</span>
+            <span style={{ color: '#6b7280' }}>\${p.price}</span>
+          </Link>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function ProductDetail() {
+  const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
+  const product = products.find(p => p.id === id)
+
+  if (!product) return <Navigate to="/404" replace />
+
+  return (
+    <div style={{ padding: 20 }}>
+      <button onClick={() => navigate(-1)} style={{ fontSize: 13, color: '#6366f1', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginBottom: 12 }}>← Back</button>
+      <h2 style={{ margin: '0 0 4px' }}>{product.name}</h2>
+      <div style={{ color: '#6b7280', fontSize: 14, marginBottom: 8 }}>{product.category} — URL param: id=<strong>{id}</strong></div>
+      <div style={{ fontSize: 22, fontWeight: 700, color: '#6366f1' }}>\${product.price}</div>
+    </div>
+  )
+}
+
+function About() {
+  return <div style={{ padding: 20, fontSize: 14, color: '#374151' }}>About page — <code>path="/about"</code></div>
+}
+
+function NotFound() {
+  return (
+    <div style={{ padding: 20, textAlign: 'center' }}>
+      <div style={{ fontSize: 40, marginBottom: 8 }}>🔍</div>
+      <h3 style={{ color: '#ef4444' }}>404 — Not Found</h3>
+      <Link to="/" style={{ color: '#6366f1', fontSize: 14 }}>Go home</Link>
+    </div>
+  )
+}
+
+export default function App() {
+  return (
+    <MemoryRouter initialEntries={['/']}>
+      <div style={{ fontFamily: 'sans-serif', border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden', maxWidth: 440 }}>
+        <Nav />
+        <div style={{ minHeight: 180 }}>
+          <Routes>
+            <Route path="/"             element={<Home />} />
+            <Route path="/products"     element={<Products />} />
+            <Route path="/products/:id" element={<ProductDetail />} />
+            <Route path="/about"        element={<About />} />
+            <Route path="/404"          element={<NotFound />} />
+            <Route path="*"             element={<Navigate to="/404" replace />} />
+          </Routes>
+        </div>
+      </div>
+    </MemoryRouter>
+  )
+}`} dependencies={{ "react-router-dom": "^6.26.0" }} />
+
+<Challenge title="Add a search param filter">
+On the `/products` page, add a category filter using `useSearchParams`:
+
+```tsx
+const [searchParams, setSearchParams] = useSearchParams()
+const category = searchParams.get('category') ?? 'all'
+
+// Filter products by category
+const filtered = category === 'all' ? products : products.filter(p => p.category === category)
+```
+
+Add buttons to filter by `Books`, `Swag`, or `All`.
+</Challenge>
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- React Router v6 uses `<Routes>` + `<Route>` declaratively
+- `useParams()` reads URL segments, `useSearchParams()` reads query strings
+- `useNavigate()` handles programmatic navigation
+- `<Outlet />` renders nested child routes in layout components
+- Protect routes by wrapping with a component that checks auth and redirects
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "How does React Router handle navigation without full page reloads?",
+    answer: "React Router uses the HTML5 History API (pushState, replaceState, popstate event). When you navigate with <Link> or useNavigate(), React Router calls history.pushState() to update the URL without a server request, then renders the matching <Route> component. The browser never sends a request to the server — only the initial page load and explicit API calls do. This is why SPAs need server configuration to serve index.html for all routes (catch-all 404 redirect to index.html), otherwise directly accessing /dashboard/analytics returns a 404 from the server.",
+    level: "junior"
+  },
+  {
+    question: "What's the difference between replace and push in navigation?",
+    answer: "navigate('/path') (push): adds a new entry to browser history — user can press Back to return. navigate('/path', { replace: true }) (replace): replaces the current history entry — Back goes to the page before the one you left, not the one you were on. Use replace for: login redirects (don't let users 'Back' to the login page after authenticating), error redirects, and step-by-step wizards where previous steps shouldn't be revisitable.",
+    level: "mid"
+  }
+]} />

@@ -1,0 +1,444 @@
+---
+title: Pure Components and Memoization
+description: Prevent unnecessary re-renders with React.memo, PureComponent, custom comparators, and the right combination of useMemo and useCallback.
+category: Components
+order: 4
+slug: components/pure
+difficulty: intermediate
+estimatedTime: 17
+tags: [React.memo, PureComponent, memoization, performance, useMemo, useCallback, shallow comparison]
+lastUpdated: "2024-01-15"
+---
+
+# Pure Components and Memoization
+
+A **pure component** always produces the same output given the same input. In React, this means: same props + same state = same rendered output. React can safely skip re-rendering a pure component if its inputs haven't changed.
+
+<Callout type="info">
+Memoization is a **performance optimization**, not a correctness tool. Start without it. Profile first, then add memoization only where you can measure a meaningful improvement.
+</Callout>
+
+## Why Re-renders Happen
+
+React re-renders a component when:
+
+1. Its own state changes.
+2. Its parent re-renders (even if the props passed to it are identical).
+3. A context it subscribes to changes.
+
+The second point is the key motivator for memoization — parent re-renders cascade to all children by default.
+
+```tsx
+function Parent() {
+  const [count, setCount] = useState(0)
+
+  return (
+    <div>
+      <button onClick={() => setCount(c => c + 1)}>Count: {count}</button>
+      {/* ExpensiveChild re-renders every time Parent re-renders,
+          even though none of its props changed */}
+      <ExpensiveChild data={staticData} />
+    </div>
+  )
+}
+```
+
+## `React.memo` for Functional Components
+
+`React.memo` is a higher-order component that wraps a functional component. Before re-rendering, React performs a **shallow comparison** of the previous and next props. If all props are shallowly equal, the previous render result is reused.
+
+```tsx
+interface ListItemProps {
+  id: string
+  label: string
+  active: boolean
+  onSelect: (id: string) => void
+}
+
+// Without memo: re-renders every time parent updates
+function ListItem({ id, label, active, onSelect }: ListItemProps) {
+  console.log(`Rendering ListItem ${id}`)
+  return (
+    <li
+      onClick={() => onSelect(id)}
+      style={{ fontWeight: active ? 'bold' : 'normal' }}
+    >
+      {label}
+    </li>
+  )
+}
+
+// With memo: only re-renders when id, label, active, or onSelect changes
+const MemoizedListItem = React.memo(ListItem)
+```
+
+### Naming Memoized Components
+
+Wrapping with `React.memo` can strip the display name from DevTools. Preserve it:
+
+```tsx
+const ListItem = React.memo(function ListItem({ id, label }: ListItemProps) {
+  return <li>{label}</li>
+})
+
+// Or set it explicitly
+const ListItem = React.memo(({ id, label }: ListItemProps) => <li>{label}</li>)
+ListItem.displayName = 'ListItem'
+```
+
+## Shallow vs Deep Comparison
+
+React.memo uses **shallow equality**: two values are equal if `Object.is(a, b)` returns true. For objects and arrays, this means comparing by **reference**, not by content.
+
+```tsx
+// Primitives — shallow comparison works correctly
+'hello' === 'hello'   // true  ✅
+42 === 42             // true  ✅
+true === true         // true  ✅
+
+// Objects — new reference even with same content
+{ a: 1 } === { a: 1 } // false ❌ — different object in memory
+[1, 2, 3] === [1, 2, 3] // false ❌
+
+// This breaks memo:
+function Parent() {
+  return (
+    <MemoizedChild
+      style={{ color: 'red' }}   // new object every render → always re-renders!
+      items={[1, 2, 3]}          // new array every render → always re-renders!
+    />
+  )
+}
+```
+
+### Fixing Reference Instability
+
+Move values outside the component or stabilize them with `useMemo`/`useCallback`:
+
+```tsx
+// ✅ Constant defined outside — stable reference
+const ITEM_STYLE = { color: 'red' }
+const DEFAULT_ITEMS = [1, 2, 3]
+
+function Parent() {
+  return <MemoizedChild style={ITEM_STYLE} items={DEFAULT_ITEMS} />
+}
+
+// ✅ Dynamic values stabilized with useMemo
+function Parent({ userId }: { userId: string }) {
+  const options = useMemo(() => ({ userId, role: 'admin' }), [userId])
+  return <MemoizedChild options={options} />
+}
+```
+
+## Custom Comparison Function
+
+`React.memo` accepts an optional second argument — a function that returns `true` when the component should **not** re-render.
+
+```tsx
+interface HeavyChartProps {
+  data: DataPoint[]
+  title: string
+  width: number
+  height: number
+}
+
+function HeavyChart({ data, title, width, height }: HeavyChartProps) {
+  // Expensive SVG computation
+  return <svg width={width} height={height}>{/* ... */}</svg>
+}
+
+const MemoizedChart = React.memo(HeavyChart, (prevProps, nextProps) => {
+  // Return true to skip re-render (like shouldComponentUpdate returning false)
+  return (
+    prevProps.data === nextProps.data &&   // same reference
+    prevProps.title === nextProps.title &&
+    prevProps.width === nextProps.width &&
+    prevProps.height === nextProps.height
+  )
+})
+```
+
+<Callout type="warning">
+The custom comparator is the inverse of `shouldComponentUpdate` — return `true` to **skip** the update, `false` to allow it. Getting this backwards causes components to never re-render when they should.
+</Callout>
+
+A more thorough deep comparison:
+
+```tsx
+import isEqual from 'lodash/isEqual'
+
+const MemoizedChart = React.memo(HeavyChart, (prev, next) => isEqual(prev, next))
+```
+
+<Callout type="danger">
+Deep comparison with `lodash.isEqual` on large/complex objects can be slower than just re-rendering. Always profile before using deep comparison.
+</Callout>
+
+## `PureComponent` for Class Components
+
+`React.PureComponent` is the class equivalent of `React.memo`. It implements `shouldComponentUpdate` with a shallow comparison of both props and state.
+
+```tsx
+interface MessageProps {
+  author: string
+  text: string
+  timestamp: number
+}
+
+class MessageItem extends React.PureComponent<MessageProps> {
+  render() {
+    return (
+      <div>
+        <strong>{this.props.author}</strong>
+        <span>{this.props.text}</span>
+        <time>{new Date(this.props.timestamp).toLocaleTimeString()}</time>
+      </div>
+    )
+  }
+}
+```
+
+## The Cost of Memoization
+
+Memoization is not free. Every memoized component pays a cost on every render:
+
+1. **Memory** — stores the previous render result.
+2. **Comparison work** — React must compare all props on every parent re-render.
+3. **Cognitive overhead** — developers must reason about which values are stable.
+
+When is memo worth it?
+
+- The component renders a large subtree or performs expensive computation.
+- It re-renders frequently due to parent updates (e.g., inside a list of 100+ items).
+- Its props are stable (primitives, or references stabilized with `useMemo`/`useCallback`).
+
+When is memo **not** worth it?
+
+- The component renders infrequently or cheaply.
+- The prop comparison is as expensive as the render itself.
+- Props include frequently-changing values (memo never saves a render then).
+
+## Combining `React.memo` with `useCallback`
+
+Function props break `React.memo` unless stabilized with `useCallback`:
+
+```tsx
+// ❌ onSelect is a new function every render → MemoizedItem always re-renders
+function List({ items }: { items: Item[] }) {
+  const handleSelect = (id: string) => { /* ... */ }
+
+  return items.map(item => (
+    <MemoizedItem key={item.id} item={item} onSelect={handleSelect} />
+  ))
+}
+
+// ✅ useCallback stabilizes the reference
+function List({ items }: { items: Item[] }) {
+  const handleSelect = useCallback((id: string) => {
+    console.log('selected', id)
+  }, []) // stable — no deps that change
+
+  return items.map(item => (
+    <MemoizedItem key={item.id} item={item} onSelect={handleSelect} />
+  ))
+}
+```
+
+## Combining `React.memo` with `useMemo`
+
+Stabilize object/array props with `useMemo`:
+
+```tsx
+function Dashboard({ userId }: { userId: string }) {
+  const config = useMemo(() => ({
+    userId,
+    theme: 'dark',
+    locale: 'en-US',
+  }), [userId]) // only recalculate when userId changes
+
+  const permissions = useMemo(() =>
+    computePermissions(userId), [userId]
+  )
+
+  return (
+    <MemoizedDashboardPanel
+      config={config}
+      permissions={permissions}
+    />
+  )
+}
+```
+
+## Practical Example: Expensive List
+
+```tsx
+interface ProductListProps {
+  products: Product[]
+  selectedId: string | null
+  onSelect: (id: string) => void
+}
+
+// Memoized row — only re-renders when its own props change
+const ProductRow = React.memo(function ProductRow({
+  product,
+  isSelected,
+  onSelect,
+}: {
+  product: Product
+  isSelected: boolean
+  onSelect: (id: string) => void
+}) {
+  return (
+    <tr
+      onClick={() => onSelect(product.id)}
+      style={{ background: isSelected ? '#ebf8ff' : 'transparent' }}
+    >
+      <td>{product.name}</td>
+      <td>${product.price.toFixed(2)}</td>
+      <td>{product.stock}</td>
+    </tr>
+  )
+})
+
+function ProductList({ products, selectedId, onSelect }: ProductListProps) {
+  // Stable callback — doesn't change between renders unless onSelect itself changes
+  const handleSelect = useCallback(onSelect, [onSelect])
+
+  return (
+    <table>
+      <tbody>
+        {products.map(p => (
+          <ProductRow
+            key={p.id}
+            product={p}
+            isSelected={p.id === selectedId}
+            onSelect={handleSelect}
+          />
+        ))}
+      </tbody>
+    </table>
+  )
+}
+```
+
+When `selectedId` changes, only the two rows whose `isSelected` changed (old selection → false, new selection → true) re-render. All other rows are skipped.
+
+## Common Mistakes
+
+<Callout type="warning">
+**Mistake 1: Memoizing everything by default.** This adds overhead without benefit and makes the codebase harder to maintain. Start without memo, measure, then add it.
+</Callout>
+
+<Callout type="warning">
+**Mistake 2: Forgetting to stabilize callback props.** Memoizing a component but passing an unstabilized inline arrow function completely defeats the optimization.
+</Callout>
+
+<Callout type="warning">
+**Mistake 3: Using memo inside the render of the parent.** Never define a component inside another component — React will treat it as a new component type on every render and remount it entirely.
+</Callout>
+
+```tsx
+// ❌ InlineChild is a new component type every render — never memoize this way
+function Parent() {
+  const InlineChild = React.memo(() => <div>Hello</div>) // ← defined inside Parent!
+  return <InlineChild />
+}
+
+// ✅ Define at module level
+const StableChild = React.memo(() => <div>Hello</div>)
+function Parent() {
+  return <StableChild />
+}
+```
+
+## Comparison: Memoization Tools
+
+<ComparisonTable
+  columns={["Tool", "Applies to", "What it memoizes", "Invalidation"]}
+  rows={[
+    ["React.memo", "Functional components", "Rendered output", "When props change (shallow by default)"],
+    ["PureComponent", "Class components", "Rendered output", "When props or state change (shallow)"],
+    ["useMemo", "Values inside components", "Computed value", "When dependency array values change"],
+    ["useCallback", "Functions inside components", "Function reference", "When dependency array values change"],
+    ["Custom comparator", "React.memo second arg", "Rendered output", "When comparator returns false"],
+  ]}
+/>
+
+<LiveEditor code={`import { useState, useCallback, memo } from 'react'
+
+const ExpensiveItem = memo(function ExpensiveItem({ name, count, onIncrement }) {
+  // Simulate expensive render
+  const start = Date.now()
+  while (Date.now() - start < 1) {} // 1ms artificial delay
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px solid #e2e8f0' }}>
+      <span style={{ flex: 1 }}>{name}</span>
+      <span style={{ width: 40, textAlign: 'center', fontWeight: 'bold' }}>{count}</span>
+      <button onClick={() => onIncrement(name)} style={{ padding: '4px 12px', cursor: 'pointer' }}>
+        +1
+      </button>
+    </div>
+  )
+})
+
+const ITEMS = ['Apples', 'Bananas', 'Cherries', 'Dates', 'Elderberries']
+
+export default function App() {
+  const [counts, setCounts] = useState(() =>
+    Object.fromEntries(ITEMS.map(name => [name, 0]))
+  )
+  const [parentTick, setParentTick] = useState(0)
+
+  // Stable callback — items only re-render when their own count changes
+  const handleIncrement = useCallback((name) => {
+    setCounts(prev => ({ ...prev, [name]: prev[name] + 1 }))
+  }, [])
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: 24, maxWidth: 400 }}>
+      <h2>Memoized Item List</h2>
+      <p style={{ color: '#718096', fontSize: 14 }}>
+        Parent has ticked {parentTick} times. Only changed rows re-render.
+      </p>
+      <button
+        onClick={() => setParentTick(t => t + 1)}
+        style={{ marginBottom: 16, padding: '6px 14px', cursor: 'pointer' }}
+      >
+        Tick Parent (no item change)
+      </button>
+      {ITEMS.map(name => (
+        <ExpensiveItem
+          key={name}
+          name={name}
+          count={counts[name]}
+          onIncrement={handleIncrement}
+        />
+      ))}
+    </div>
+  )
+}`} />
+
+<InterviewQA questions={[
+  {
+    question: "What is shallow comparison and why does it matter for React.memo?",
+    answer: "Shallow comparison checks if two values are the same by reference (using Object.is). For primitives (strings, numbers, booleans), this works correctly. For objects and arrays, two values with identical contents but different memory addresses are NOT equal. This matters for React.memo because passing a new object or array literal as a prop on every render will cause the memoized component to re-render on every parent update, defeating the optimization. The fix is to stabilize references with useMemo for values and useCallback for functions.",
+    level: "intermediate"
+  },
+  {
+    question: "When should you NOT use React.memo?",
+    answer: "Avoid React.memo when: (1) the component renders cheaply and infrequently — the comparison overhead may exceed the render cost; (2) props include frequently-changing values, meaning memo rarely skips a render; (3) the component receives many props, making comparison itself expensive; (4) you're in early development — premature optimization obscures bugs. Always profile with React DevTools Profiler before adding memo.",
+    level: "intermediate"
+  },
+  {
+    question: "How do useMemo and useCallback relate to React.memo, and why are all three often used together?",
+    answer: "React.memo prevents a child component from re-rendering when its props haven't changed. But if the parent passes an object created inline (like `style={{ color: 'red' }}`) or an arrow function (like `onClick={() => handleClick()}`), those props are new references on every parent render, so React.memo never helps. useMemo stabilizes object/array references so they only change when their inputs change. useCallback does the same for function references. The three work together: React.memo is the gate, useMemo/useCallback are what make the props stable enough to pass through that gate.",
+    level: "advanced"
+  },
+  {
+    question: "What is the semantic contract of a 'pure' component, and how does it relate to React's rendering model?",
+    answer: "A pure component is a function where given the same arguments, it always returns the same result and has no observable side effects during rendering. React's rendering model assumes components are pure: it can render any component at any time (including twice in Strict Mode during development), call render multiple times before committing, or skip renders entirely via memoization. Violating purity — by reading mutable external state, causing side effects during render, or producing different output for the same props — breaks React's assumptions and leads to bugs that are hard to reproduce.",
+    level: "advanced"
+  }
+]} />

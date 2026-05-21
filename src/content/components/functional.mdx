@@ -1,0 +1,251 @@
+---
+title: Functional Components
+description: The modern way to write React components — functions that accept props and return JSX.
+category: Components
+order: 1
+slug: components/functional
+difficulty: beginner
+estimatedTime: 12
+tags: [functional components, hooks, modern react, jsx, typescript]
+lastUpdated: 2024-01-15
+---
+
+# Functional Components
+
+A **functional component** is a JavaScript function that accepts `props` and returns JSX. Since React Hooks were introduced in 2019, functional components are the standard way to write React.
+
+```tsx
+function Greeting({ name }: { name: string }) {
+  return <h1>Hello, {name}!</h1>
+}
+```
+
+## Anatomy of a Functional Component
+
+```tsx
+// 1. TypeScript interface for props
+interface CardProps {
+  title:    string
+  body:     string
+  footer?:  React.ReactNode   // optional
+  onClick?: () => void
+}
+
+// 2. Component function — named, starts with capital letter
+function Card({ title, body, footer, onClick }: CardProps) {
+  // 3. Hooks at the top level
+  const [expanded, setExpanded] = useState(false)
+
+  // 4. Derived values and handlers
+  const handleClick = () => {
+    setExpanded(v => !v)
+    onClick?.()
+  }
+
+  // 5. Return JSX (one root element, or Fragment)
+  return (
+    <div className="card" onClick={handleClick}>
+      <h2>{title}</h2>
+      {expanded && <p>{body}</p>}
+      {footer && <footer>{footer}</footer>}
+    </div>
+  )
+}
+
+// 6. Export — named or default
+export default Card
+```
+
+## Arrow Function vs Named Function
+
+```tsx
+// Both are valid functional components
+
+// Named function (recommended — better stack traces)
+function Button({ label, onClick }: ButtonProps) {
+  return <button onClick={onClick}>{label}</button>
+}
+
+// Arrow function (common in inline/HOC patterns)
+const Button = ({ label, onClick }: ButtonProps) => (
+  <button onClick={onClick}>{label}</button>
+)
+```
+
+## TypeScript Props Typing
+
+```tsx
+// Method 1: Inline type annotation (quick, good for simple components)
+function Tag({ text, color }: { text: string; color: string }) {
+  return <span style={{ color }}>{text}</span>
+}
+
+// Method 2: Interface (preferred for shared/complex props)
+interface ButtonProps {
+  variant?:  'primary' | 'secondary' | 'ghost'
+  size?:     'sm' | 'md' | 'lg'
+  disabled?: boolean
+  loading?:  boolean
+  onClick?:  (event: React.MouseEvent<HTMLButtonElement>) => void
+  children:  React.ReactNode
+}
+
+function Button({ variant = 'primary', size = 'md', children, ...props }: ButtonProps) {
+  return (
+    <button
+      className={`btn btn-${variant} btn-${size}`}
+      {...props}
+    >
+      {children}
+    </button>
+  )
+}
+
+// Method 3: React.FC — not recommended (adds implicit children, poor inference)
+const Button: React.FC<ButtonProps> = ({ children }) => <button>{children}</button>
+```
+
+<Callout type="warning" title="Avoid React.FC">
+`React.FC` adds an implicit `children?: ReactNode` prop (even if you don't want it) and makes generic components harder to write. Prefer explicit prop types.
+</Callout>
+
+## Component Composition
+
+```tsx
+// Small, focused components compose into complex UIs
+
+function Avatar({ src, alt, size = 'md' }: AvatarProps) {
+  return <img src={src} alt={alt} className={`avatar avatar-${size}`} />
+}
+
+function UserCard({ user }: { user: User }) {
+  return (
+    <div className="user-card">
+      <Avatar src={user.avatarUrl} alt={user.name} size="lg" />
+      <div>
+        <h3>{user.name}</h3>
+        <p>{user.role}</p>
+      </div>
+    </div>
+  )
+}
+
+function UserList({ users }: { users: User[] }) {
+  return (
+    <ul>
+      {users.map(user => (
+        <li key={user.id}>
+          <UserCard user={user} />
+        </li>
+      ))}
+    </ul>
+  )
+}
+```
+
+## Component Best Practices
+
+| Practice | Why |
+|---|---|
+| Single responsibility | Easier to test, understand, reuse |
+| Descriptive names | Self-documenting code |
+| Props interface declared separately | Better IDE support, composable |
+| Default props in destructuring | No need for external defaultProps |
+| Keep JSX readable | Extract JSX into variables for complex conditional rendering |
+
+## Interactive Example — Build Your First Components
+
+Edit the code and see changes live. Try modifying the `Avatar` props or adding a new `Badge` component:
+
+<LiveEditor code={`import { useState } from 'react'
+
+// A simple reusable Avatar component
+function Avatar({ name, color = '#6366f1' }: { name: string; color?: string }) {
+  const initials = name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
+  return (
+    <div style={{
+      width: 48, height: 48, borderRadius: '50%',
+      background: color, color: 'white',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontWeight: 700, fontSize: 16, flexShrink: 0,
+    }}>
+      {initials}
+    </div>
+  )
+}
+
+// A card that composes Avatar + other elements
+function UserCard({ name, role, color }: { name: string; role: string; color?: string }) {
+  const [liked, setLiked] = useState(false)
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', border: '1px solid #e5e7eb', borderRadius: 12 }}>
+      <Avatar name={name} color={color} />
+      <div style={{ flex: 1 }}>
+        <div style={{ fontWeight: 600, fontSize: 15 }}>{name}</div>
+        <div style={{ color: '#6b7280', fontSize: 13 }}>{role}</div>
+      </div>
+      <button
+        onClick={() => setLiked(l => !l)}
+        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20 }}
+      >
+        {liked ? '❤️' : '🤍'}
+      </button>
+    </div>
+  )
+}
+
+// App composes multiple UserCards
+export default function App() {
+  const users = [
+    { name: 'Alice Chen',   role: 'Senior Engineer', color: '#6366f1' },
+    { name: 'Bob Torres',   role: 'Product Designer', color: '#ec4899' },
+    { name: 'Carol Smith',  role: 'Engineering Manager', color: '#22c55e' },
+  ]
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <h3 style={{ margin: '0 0 8px', fontSize: 15, color: '#374151' }}>Team Directory</h3>
+      {users.map(u => <UserCard key={u.name} {...u} />)}
+    </div>
+  )
+}`} />
+
+<Challenge title="Add a Badge component">
+Create a `Badge` component that accepts `label` and `color` props and renders a small pill next to the user's role.
+
+```tsx
+function Badge({ label, color }: { label: string; color: string }) {
+  return (
+    <span style={{ /* pill styles */ }}>
+      {label}
+    </span>
+  )
+}
+```
+
+Then add `"Online"` (green) or `"Away"` (amber) badges to each `UserCard`.
+</Challenge>
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- A functional component is a function that returns JSX
+- Use TypeScript interfaces for prop types (not `React.FC`)
+- Keep components small and focused on one responsibility
+- Compose simple components to build complex UIs
+- Hooks must be called at the top level of the function body
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "What is the difference between a functional component and a class component?",
+    answer: "Functional components are plain functions that accept props and return JSX. Class components are ES6 classes extending React.Component with a render() method. Key differences: (1) Functional components use Hooks for state and lifecycle; class components use this.state and lifecycle methods (componentDidMount, etc.). (2) Functional components are simpler, shorter, and easier to test. (3) Class components have some exclusive APIs (getSnapshotBeforeUpdate, getDerivedStateFromError for error boundaries). Since Hooks (React 16.8), functional components are preferred for all new code.",
+    level: "junior"
+  },
+  {
+    question: "Why is React.FC not recommended for typing functional components?",
+    answer: "React.FC (or React.FunctionComponent) has several drawbacks: (1) It implicitly adds children to props even when your component doesn't accept children — this is a footgun. (2) Generic components are much harder to write with React.FC because of TypeScript limitations. (3) It doesn't improve type safety in a meaningful way over explicit prop types. (4) defaultProps handling differs. The React community and the React TypeScript Cheatsheet recommend using plain function declarations with explicit prop interfaces instead.",
+    level: "mid"
+  }
+]} />

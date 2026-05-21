@@ -1,0 +1,587 @@
+---
+title: Rendering Lists
+description: Learn how to render arrays of data in React using .map(), filter, sort, and semantic HTML — the foundation of every data-driven UI.
+category: Lists & Keys
+order: 1
+slug: lists/rendering-lists
+difficulty: beginner
+estimatedTime: 18
+tags: [lists, arrays, map, filter, sort, jsx, beginner]
+lastUpdated: "2024-01-15"
+---
+
+# Rendering Lists
+
+Almost every real React application renders lists — product catalogs, user feeds, search results, navigation menus. React makes this straightforward: since JSX is just JavaScript, you can use standard array methods to produce collections of elements.
+
+## Why `.map()` and Not `forEach`
+
+The single most important thing to understand before rendering lists is **why** React uses `.map()` instead of `forEach`.
+
+`forEach` executes a callback for its side effects and always returns `undefined`. You cannot embed a `forEach` call directly in JSX because JSX needs an *expression that evaluates to a value*.
+
+`.map()` returns a new array — which is exactly what JSX can render:
+
+```tsx
+const colors = ['red', 'green', 'blue']
+
+// ✅ .map() returns an array of JSX elements
+function ColorList() {
+  return (
+    <ul>
+      {colors.map(color => (
+        <li>{color}</li>
+      ))}
+    </ul>
+  )
+}
+
+// ❌ forEach returns undefined — nothing renders, no error thrown
+function BrokenColorList() {
+  return (
+    <ul>
+      {colors.forEach(color => (
+        <li>{color}</li>   // silently discarded
+      ))}
+    </ul>
+  )
+}
+```
+
+<Callout type="warning">
+`forEach` is the most common beginner mistake when rendering lists. It compiles without errors but produces a blank output because `undefined` renders as nothing in JSX. Always reach for `.map()` when you need to produce elements.
+</Callout>
+
+## Your First List
+
+The minimal pattern: call `.map()` on an array inside your JSX, and return a JSX element for each item.
+
+```tsx
+const fruits = ['Apple', 'Banana', 'Cherry', 'Date']
+
+function FruitList() {
+  return (
+    <ul>
+      {fruits.map(fruit => (
+        <li key={fruit}>{fruit}</li>
+      ))}
+    </ul>
+  )
+}
+```
+
+You'll notice the `key` prop — this is required for list items and is covered in depth in the [Keys](/lists/keys) tutorial. For now, just use the item value when it is guaranteed to be unique.
+
+## Rendering Arrays of Objects
+
+Real data is almost never a flat array of strings. You will usually map over an array of objects and extract the fields you need:
+
+```tsx
+interface Product {
+  id: number
+  name: string
+  price: number
+  category: string
+  inStock: boolean
+}
+
+const products: Product[] = [
+  { id: 1, name: 'Mechanical Keyboard', price: 129, category: 'Electronics', inStock: true },
+  { id: 2, name: 'Ergonomic Mouse',     price: 79,  category: 'Electronics', inStock: true },
+  { id: 3, name: 'Standing Desk Mat',   price: 45,  category: 'Office',      inStock: false },
+  { id: 4, name: 'USB-C Hub',           price: 59,  category: 'Electronics', inStock: true },
+  { id: 5, name: 'Monitor Arm',         price: 89,  category: 'Office',      inStock: false },
+]
+
+function ProductList() {
+  return (
+    <ul className="product-list">
+      {products.map(product => (
+        <li key={product.id} className="product-item">
+          <span className="product-name">{product.name}</span>
+          <span className="product-price">${product.price}</span>
+          <span className={product.inStock ? 'in-stock' : 'out-of-stock'}>
+            {product.inStock ? 'In Stock' : 'Out of Stock'}
+          </span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+```
+
+<Callout type="tip">
+When your objects have a database `id`, always use it as the `key`. It is guaranteed to be unique and stable — unlike the array index, which changes when the array is reordered.
+</Callout>
+
+## Extracting a List Item Component
+
+Once a list item has more than a line or two of JSX, extract it into its own component. This keeps your map callback readable and the item component independently testable:
+
+```tsx
+interface ProductCardProps {
+  product: Product
+}
+
+function ProductCard({ product }: ProductCardProps) {
+  const formattedPrice = new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+  }).format(product.price)
+
+  return (
+    <li className="product-card">
+      <h3>{product.name}</h3>
+      <p className="category">{product.category}</p>
+      <p className="price">{formattedPrice}</p>
+      <span
+        className="badge"
+        data-status={product.inStock ? 'available' : 'unavailable'}
+      >
+        {product.inStock ? 'In Stock' : 'Out of Stock'}
+      </span>
+    </li>
+  )
+}
+
+function ProductList() {
+  return (
+    <ul className="product-grid">
+      {products.map(product => (
+        <ProductCard key={product.id} product={product} />
+      ))}
+    </ul>
+  )
+}
+```
+
+Note that the `key` goes on the outer element *inside the map* — in this case on `<ProductCard>`, not inside the `ProductCard` component itself.
+
+## Semantic HTML: `ul/li` vs `div`
+
+Choosing the right HTML wrapper matters for accessibility and SEO:
+
+| Use case | Correct markup |
+|---|---|
+| Unordered list (order irrelevant) | `<ul> / <li>` |
+| Ordered/numbered list | `<ol> / <li>` |
+| Navigation links | `<nav> <ul> <li> <a>` |
+| Definition pairs (term/description) | `<dl> <dt> <dd>` |
+| Tabular data | `<table> <thead> <tbody> <tr> <td>` |
+| Cards/tiles with no list meaning | `<div>` is acceptable |
+
+```tsx
+// ✅ Navigation — semantic
+function NavMenu({ links }: { links: { href: string; label: string }[] }) {
+  return (
+    <nav aria-label="Main navigation">
+      <ul role="list">
+        {links.map(link => (
+          <li key={link.href}>
+            <a href={link.href}>{link.label}</a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  )
+}
+
+// ✅ Ordered steps
+function Steps({ steps }: { steps: string[] }) {
+  return (
+    <ol className="step-list">
+      {steps.map((step, index) => (
+        <li key={index}>{step}</li>  // index is fine here — steps are static
+      ))}
+    </ol>
+  )
+}
+```
+
+<Callout type="info">
+Screen readers announce `<ul>` as "list" and count the items. Using `<div>` for navigation or lists degrades accessibility. When in doubt, use semantic HTML.
+</Callout>
+
+## Filtering Lists with `.filter().map()`
+
+Combine `.filter()` and `.map()` to render a subset of your data. Always filter *before* mapping, never inside the map callback:
+
+```tsx
+function InStockProducts() {
+  // filter first, then map — clean and efficient
+  const available = products.filter(p => p.inStock)
+
+  return (
+    <section>
+      <h2>Available Products ({available.length})</h2>
+      <ul>
+        {available.map(product => (
+          <ProductCard key={product.id} product={product} />
+        ))}
+      </ul>
+    </section>
+  )
+}
+```
+
+### Dynamic Filtering from User Input
+
+Pair filtering with state to build interactive lists:
+
+```tsx
+function FilterableProductList() {
+  const [query, setQuery] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState('All')
+
+  const categories = ['All', ...new Set(products.map(p => p.category))]
+
+  const visible = products
+    .filter(p => categoryFilter === 'All' || p.category === categoryFilter)
+    .filter(p => p.name.toLowerCase().includes(query.toLowerCase()))
+
+  return (
+    <div>
+      <input
+        type="search"
+        placeholder="Search products…"
+        value={query}
+        onChange={e => setQuery(e.target.value)}
+      />
+      <div className="category-pills">
+        {categories.map(cat => (
+          <button
+            key={cat}
+            onClick={() => setCategoryFilter(cat)}
+            aria-pressed={categoryFilter === cat}
+          >
+            {cat}
+          </button>
+        ))}
+      </div>
+      {visible.length === 0 ? (
+        <p>No products match your search.</p>
+      ) : (
+        <ul>
+          {visible.map(product => (
+            <ProductCard key={product.id} product={product} />
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+```
+
+## Sorting Before Rendering
+
+Sort a *copy* of the array before mapping — never mutate the original state array with `.sort()` (it mutates in place):
+
+```tsx
+type SortField = 'name' | 'price'
+
+function SortableProductList() {
+  const [sortBy, setSortBy] = useState<SortField>('name')
+
+  // [...products] creates a shallow copy so the original is not mutated
+  const sorted = [...products].sort((a, b) => {
+    if (sortBy === 'name')  return a.name.localeCompare(b.name)
+    if (sortBy === 'price') return a.price - b.price
+    return 0
+  })
+
+  return (
+    <div>
+      <label>
+        Sort by:{' '}
+        <select value={sortBy} onChange={e => setSortBy(e.target.value as SortField)}>
+          <option value="name">Name</option>
+          <option value="price">Price</option>
+        </select>
+      </label>
+      <ul>
+        {sorted.map(product => (
+          <ProductCard key={product.id} product={product} />
+        ))}
+      </ul>
+    </div>
+  )
+}
+```
+
+<Callout type="danger">
+Never call `state.sort()` directly. `Array.prototype.sort` mutates the array in place. If `products` is state or a prop, mutating it will cause subtle bugs that are hard to debug. Always spread or `.slice()` first: `[...products].sort(...)`.
+</Callout>
+
+## Nested Lists
+
+Render nested arrays by nesting `.map()` calls. Each level needs its own `key`:
+
+```tsx
+interface Category {
+  id: number
+  name: string
+  products: Product[]
+}
+
+const catalog: Category[] = [
+  {
+    id: 1,
+    name: 'Electronics',
+    products: [
+      { id: 1, name: 'Mechanical Keyboard', price: 129, category: 'Electronics', inStock: true },
+      { id: 2, name: 'Ergonomic Mouse',     price: 79,  category: 'Electronics', inStock: true },
+    ],
+  },
+  {
+    id: 2,
+    name: 'Office',
+    products: [
+      { id: 3, name: 'Standing Desk Mat', price: 45, category: 'Office', inStock: false },
+    ],
+  },
+]
+
+function Catalog() {
+  return (
+    <div>
+      {catalog.map(category => (
+        <section key={category.id}>
+          <h2>{category.name}</h2>
+          <ul>
+            {category.products.map(product => (
+              <li key={product.id}>{product.name}</li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
+  )
+}
+```
+
+## Rendering Tables from Data Arrays
+
+Tables follow the same map pattern but require `<table>`, `<thead>`, `<tbody>`, `<tr>`, and `<td>` elements:
+
+```tsx
+const columns = ['Name', 'Category', 'Price', 'Status']
+
+function ProductTable() {
+  return (
+    <table>
+      <thead>
+        <tr>
+          {columns.map(col => (
+            <th key={col} scope="col">{col}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {products.map(product => (
+          <tr key={product.id}>
+            <td>{product.name}</td>
+            <td>{product.category}</td>
+            <td>${product.price}</td>
+            <td>{product.inStock ? 'In Stock' : 'Out of Stock'}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+```
+
+## Live Example: Product List with Filter and Sort
+
+<LiveEditor code={`import { useState } from 'react'
+
+const products = [
+  { id: 1, name: 'Mechanical Keyboard', price: 129, category: 'Electronics', inStock: true },
+  { id: 2, name: 'Ergonomic Mouse',     price: 79,  category: 'Electronics', inStock: true },
+  { id: 3, name: 'Standing Desk Mat',   price: 45,  category: 'Office',      inStock: false },
+  { id: 4, name: 'USB-C Hub',           price: 59,  category: 'Electronics', inStock: true },
+  { id: 5, name: 'Monitor Arm',         price: 89,  category: 'Office',      inStock: false },
+  { id: 6, name: 'Webcam HD',           price: 99,  category: 'Electronics', inStock: true },
+]
+
+export default function App() {
+  const [query, setQuery]     = useState('')
+  const [onlyInStock, setOnlyInStock] = useState(false)
+  const [sortBy, setSortBy]   = useState('name')
+
+  const visible = [...products]
+    .filter(p => !onlyInStock || p.inStock)
+    .filter(p => p.name.toLowerCase().includes(query.toLowerCase()))
+    .sort((a, b) =>
+      sortBy === 'price'
+        ? a.price - b.price
+        : a.name.localeCompare(b.name)
+    )
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: 24 }}>
+      <h1>Product Catalog</h1>
+
+      <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+        <input
+          type="search"
+          placeholder="Search…"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          style={{ padding: '6px 10px', borderRadius: 4, border: '1px solid #ccc' }}
+        />
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <input
+            type="checkbox"
+            checked={onlyInStock}
+            onChange={e => setOnlyInStock(e.target.checked)}
+          />
+          In stock only
+        </label>
+        <select
+          value={sortBy}
+          onChange={e => setSortBy(e.target.value)}
+          style={{ padding: '6px 10px', borderRadius: 4, border: '1px solid #ccc' }}
+        >
+          <option value="name">Sort: Name</option>
+          <option value="price">Sort: Price</option>
+        </select>
+      </div>
+
+      <p style={{ color: '#666', fontSize: 14 }}>{visible.length} result(s)</p>
+
+      {visible.length === 0 ? (
+        <p>No products found.</p>
+      ) : (
+        <ul style={{ listStyle: 'none', padding: 0, display: 'grid', gap: 12 }}>
+          {visible.map(product => (
+            <li
+              key={product.id}
+              style={{
+                border: '1px solid #e5e7eb',
+                borderRadius: 8,
+                padding: 16,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                background: product.inStock ? '#fff' : '#f9fafb',
+              }}
+            >
+              <div>
+                <strong>{product.name}</strong>
+                <div style={{ fontSize: 13, color: '#6b7280' }}>{product.category}</div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontWeight: 'bold' }}>\${product.price}</div>
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: product.inStock ? '#16a34a' : '#dc2626',
+                  }}
+                >
+                  {product.inStock ? 'In Stock' : 'Out of Stock'}
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}`} />
+
+## Data Flow Diagram
+
+<MermaidDiagram chart={`flowchart LR
+    A[State Array] --> B[.filter]
+    B --> C[.sort copy]
+    C --> D[.map]
+    D --> E[JSX Elements]
+    E --> F[React DOM]
+    G[User Input] -->|setState| A`} />
+
+## Common Beginner Mistakes
+
+### 1. Mutating State Directly
+
+```tsx
+// ❌ sort mutates in place — React may not re-render
+function handleSort() {
+  products.sort((a, b) => a.price - b.price)  // mutates original
+  setProducts(products)                         // same reference → no re-render
+}
+
+// ✅ create a new array first
+function handleSort() {
+  setProducts(prev => [...prev].sort((a, b) => a.price - b.price))
+}
+```
+
+### 2. Forgetting to Return from the Map Callback
+
+```tsx
+// ❌ no return — map produces [undefined, undefined, ...]
+products.map(product => {
+  <li key={product.id}>{product.name}</li>
+})
+
+// ✅ explicit return
+products.map(product => {
+  return <li key={product.id}>{product.name}</li>
+})
+
+// ✅ implicit return with parentheses (arrow function body omitted)
+products.map(product => (
+  <li key={product.id}>{product.name}</li>
+))
+```
+
+<Callout type="warning">
+Using curly braces `{}` in an arrow function creates a function *body*, meaning you need an explicit `return`. Parentheses `()` are an *expression*, which is returned implicitly. This is a very common source of blank output with no error.
+</Callout>
+
+### 3. Using Mutable Methods Inside JSX
+
+```tsx
+// ❌ .push(), .splice(), .reverse() all mutate in place
+{products.reverse().map(...)}   // mutates every render
+
+// ✅ use immutable alternatives
+{[...products].reverse().map(...)}
+```
+
+### 4. Rendering `null`/`undefined` Items
+
+If your array contains `null` or `undefined` values, `.map()` will try to render them. Guard with `.filter(Boolean)` first:
+
+```tsx
+const maybeProducts: (Product | null)[] = fetchResults()
+
+// ✅ remove nulls before mapping
+maybeProducts
+  .filter((p): p is Product => p !== null)
+  .map(p => <ProductCard key={p.id} product={p} />)
+```
+
+<InterviewQA questions={[
+  {
+    question: "Why does React use .map() to render lists instead of forEach?",
+    answer: ".map() returns a new array containing the JSX elements produced by the callback — that array is what React renders. forEach always returns undefined and executes its callback only for side effects, so embedding it in JSX produces nothing. JSX expressions must evaluate to a renderable value (string, number, array of elements, null, etc.).",
+    level: "beginner"
+  },
+  {
+    question: "You call products.sort() inside a component and pass the result to .map(). What subtle bug does this introduce?",
+    answer: "Array.prototype.sort sorts in place and returns the same array reference. If products comes from state, mutating it directly means React may not detect a change (same reference) and skip a re-render. Even when a re-render does happen, mutating state outside of setState breaks React's guarantees around immutability and makes the component's behavior unpredictable. The fix is to copy the array first: [...products].sort(...).",
+    level: "intermediate"
+  },
+  {
+    question: "What is the difference between filtering before .map() vs filtering inside the map callback?",
+    answer: "Filtering before .map() with .filter().map() is the correct pattern — it produces an array that contains only the elements you want. Filtering inside map by returning null for unwanted items still iterates the full array and produces nulls (which React skips, but they still occupy the virtual DOM array). The .filter().map() approach is more readable, semantically correct, and avoids null entries in the rendered array.",
+    level: "beginner"
+  },
+  {
+    question: "How would you efficiently render 10,000 list items in React without freezing the browser?",
+    answer: "Rendering 10,000 DOM nodes at once is expensive. The standard solution is virtual/windowed rendering: libraries like react-window or react-virtual only render the items visible in the viewport (typically 20-50) plus a small overscan buffer. As the user scrolls, items are recycled. This keeps the DOM node count constant and the initial render fast regardless of data size.",
+    level: "advanced"
+  }
+]} />

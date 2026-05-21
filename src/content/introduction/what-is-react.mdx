@@ -1,0 +1,238 @@
+---
+title: What is React?
+description: Understand what React is, who built it, and why it became the world's most popular JavaScript UI library.
+category: Introduction
+order: 1
+slug: introduction/what-is-react
+difficulty: beginner
+estimatedTime: 8
+tags: [react, introduction, javascript, library, ui]
+lastUpdated: 2024-01-15
+---
+
+# What is React?
+
+React is an **open-source JavaScript library** for building user interfaces (UIs). It was created by Jordan Walke at Facebook in 2011, open-sourced in 2013, and is now maintained by Meta and a massive open-source community.
+
+<Callout type="info" title="Library, not a framework">
+React is a **library**, not a full framework. It focuses solely on the **View** layer (what the user sees). You choose your own routing, state management, and server-side tools.
+</Callout>
+
+## The Core Idea
+
+At its heart, React gives you one superpower: **build UIs from reusable, composable components**.
+
+Instead of manually manipulating the DOM like this:
+
+```js
+// Old way — jQuery-style imperative DOM manipulation
+const button = document.createElement('button')
+button.textContent = 'Click me'
+button.addEventListener('click', () => {
+  const count = parseInt(button.dataset.count || '0') + 1
+  button.textContent = `Clicked ${count} times`
+  button.dataset.count = String(count)
+})
+document.body.appendChild(button)
+```
+
+React lets you describe **what the UI should look like** for any given state:
+
+```tsx
+// React way — declarative
+function Counter() {
+  const [count, setCount] = React.useState(0)
+
+  return (
+    <button onClick={() => setCount(count + 1)}>
+      Clicked {count} times
+    </button>
+  )
+}
+```
+
+React figures out the minimum DOM changes needed when state changes. You describe **what**, React handles **how**.
+
+## Real-World Analogy
+
+Think of React like **Lego bricks**.
+
+Each brick (component) is:
+- **Self-contained** — it knows its own shape and behavior
+- **Composable** — bricks snap together to build complex structures
+- **Reusable** — the same brick appears in multiple places
+- **Replaceable** — swap one brick without rebuilding everything
+
+Facebook's News Feed, Instagram's photo grid, Airbnb's listing cards — all built from Lego bricks snapped together.
+
+## Key Characteristics
+
+| Concept | What it means |
+|---|---|
+| **Declarative** | Describe *what* the UI looks like, not *how* to build it |
+| **Component-Based** | Build encapsulated pieces that manage their own state |
+| **Learn Once, Write Anywhere** | React for web, React Native for mobile — same mental model |
+| **Unidirectional Data Flow** | Data flows down through props; events bubble up |
+| **Virtual DOM** | React diffs a virtual tree instead of touching real DOM every frame |
+
+## The React Component Tree
+
+Every React app is a tree of components:
+
+<MermaidDiagram chart={`
+graph TD
+  A[App] --> B[Header]
+  A --> C[Sidebar]
+  A --> D[Main Content]
+  D --> E[ArticleList]
+  D --> F[Pagination]
+  E --> G[ArticleCard]
+  E --> H[ArticleCard]
+  E --> I[ArticleCard]
+  B --> J[Logo]
+  B --> K[NavLinks]
+  B --> L[SearchBar]
+`} caption="A typical React component tree" />
+
+## How React Renders
+
+<MermaidDiagram chart={`
+sequenceDiagram
+  participant Dev as Developer
+  participant React
+  participant VDOM as Virtual DOM
+  participant DOM as Real DOM
+  participant User
+
+  Dev->>React: Write JSX components
+  React->>VDOM: Build virtual tree
+  VDOM->>DOM: Commit initial render
+  DOM->>User: User sees UI
+  User->>React: Triggers event (click, type...)
+  React->>VDOM: Re-compute virtual tree
+  VDOM->>VDOM: Diff old vs new tree
+  VDOM->>DOM: Apply only changed nodes
+  DOM->>User: UI updates instantly
+`} caption="React's render and reconciliation cycle" />
+
+## What React Is NOT
+
+- ❌ Not a complete framework (no built-in routing, HTTP client, or ORM)
+- ❌ Not a replacement for your server (it's a client-side UI library)
+- ❌ Not opinionated about styling (use CSS modules, Tailwind, styled-components — your choice)
+- ❌ Not tied to the browser (React Native, React Three Fiber, Remotion — React targets many renderers)
+
+## Who Uses React in Production?
+
+The list of companies using React at massive scale:
+
+| Company | What they build with React |
+|---|---|
+| Meta | Facebook, Instagram, WhatsApp Web |
+| Airbnb | Core booking flow and host dashboard |
+| Netflix | UI engineering tools and content platform |
+| Atlassian | Jira, Confluence |
+| Shopify | Storefront, admin dashboard |
+| Microsoft | Teams, Office 365 web |
+| Uber | Rider and driver apps |
+| Twitter/X | Timeline and DM UI |
+
+## React vs The Alternatives
+
+<ComparisonTable
+  columns={[
+    { key: 'react',  label: 'React',   highlight: true },
+    { key: 'vue',    label: 'Vue' },
+    { key: 'angular',label: 'Angular' },
+    { key: 'svelte', label: 'Svelte' },
+  ]}
+  rows={[
+    { feature: 'Type',           react: 'Library',    vue: 'Framework',  angular: 'Framework',  svelte: 'Compiler' },
+    { feature: 'Learning curve', react: 'Medium',     vue: 'Low',        angular: 'High',       svelte: 'Low' },
+    { feature: 'Ecosystem size', react: 'Largest',    vue: 'Large',      angular: 'Large',      svelte: 'Growing' },
+    { feature: 'TypeScript',     react: true,         vue: true,         angular: true,         svelte: true },
+    { feature: 'Job market',     react: '★★★★★',    vue: '★★★',       angular: '★★★★',      svelte: '★★' },
+    { feature: 'Bundle size',    react: '~45kb gz',   vue: '~22kb gz',   angular: '~130kb gz',  svelte: '~0kb gz' },
+    { feature: 'React Native',   react: true,         vue: false,        angular: false,        svelte: false },
+  ]}
+  caption="React vs popular UI frameworks/libraries (2024)"
+/>
+
+## Try It — Your First React Component
+
+Edit the code and see React render your changes instantly:
+
+<LiveEditor code={`import { useState } from 'react'
+
+// A component is just a function that returns JSX
+function Greeting({ name }: { name: string }) {
+  return (
+    <div style={{ fontSize: 20, fontWeight: 700, color: '#6366f1' }}>
+      Hello, {name}! 👋
+    </div>
+  )
+}
+
+// useState makes the UI reactive — React re-renders when state changes
+function Counter() {
+  const [count, setCount] = useState(0)
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 12 }}>
+      <button
+        onClick={() => setCount(c => c - 1)}
+        style={{ width: 36, height: 36, borderRadius: 8, border: '1px solid #e5e7eb', cursor: 'pointer', fontSize: 18, background: '#f9fafb' }}
+      >−</button>
+      <span style={{ fontSize: 24, fontWeight: 800, minWidth: 40, textAlign: 'center' }}>{count}</span>
+      <button
+        onClick={() => setCount(c => c + 1)}
+        style={{ width: 36, height: 36, borderRadius: 8, border: '1px solid #e5e7eb', cursor: 'pointer', fontSize: 18, background: '#f9fafb' }}
+      >+</button>
+    </div>
+  )
+}
+
+// Components compose — build complex UIs from small pieces
+export default function App() {
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: 24 }}>
+      <Greeting name="World" />
+      <p style={{ color: '#6b7280', fontSize: 14, marginTop: 4 }}>
+        Try changing the name prop above, or click the counter.
+      </p>
+      <Counter />
+    </div>
+  )
+}`} />
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- React is a **declarative, component-based JavaScript library** for building UIs
+- You describe **what** the UI should look like — React handles the DOM updates
+- It was created by Facebook and is now the **most widely used UI library** in the world
+- React is a **library** (not a framework) — it handles only the View layer
+- It uses a **Virtual DOM** to efficiently update the real DOM
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "What is React and what problem does it solve?",
+    answer: "React is a JavaScript library for building user interfaces. It solves the problem of efficiently updating the DOM when application state changes. Before React, developers manually manipulated the DOM (imperative), which was error-prone at scale. React uses a declarative model — you describe what the UI should look like for any state, and React handles the DOM updates. Its component model also encourages code reuse and separation of concerns.",
+    level: "junior"
+  },
+  {
+    question: "What is the difference between a library and a framework?",
+    answer: "A library (like React) provides specific functionality that you call when needed — you control the flow. A framework (like Angular or Next.js) provides a complete structure; the framework calls your code (Inversion of Control). React is a library because it only handles the View layer. You choose your own router (React Router), state manager (Redux, Zustand), and HTTP client (Axios, fetch).",
+    level: "junior"
+  },
+  {
+    question: "React is described as 'declarative'. What does that mean, and how does it differ from imperative?",
+    answer: "Declarative means you describe WHAT you want the UI to look like for a given state. React computes HOW to update the DOM to match. Imperative means you write step-by-step instructions for HOW to update the DOM (e.g., 'find this element, change this attribute'). Declarative code is easier to reason about because you think in terms of state snapshots, not DOM mutations. React's JSX is declarative — you write the desired output, not the transformation steps.",
+    level: "mid"
+  },
+  {
+    question: "What are the trade-offs of React being a library rather than a full framework?",
+    answer: "Pros: More flexibility in choosing tools, lighter initial bundle, not locked into one paradigm. Cons: Decision fatigue (which router? state manager?), no official prescriptive architecture for large apps, inconsistent community patterns across projects. This is why meta-frameworks like Next.js and Remix exist — they make these decisions for you while keeping React at the core.",
+    level: "senior"
+  }
+]} />

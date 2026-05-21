@@ -1,0 +1,275 @@
+---
+title: Context Patterns
+description: Advanced Context API patterns — multi-context composition, performance optimization, and structuring global state at scale.
+category: Context API
+order: 2
+slug: context-api/context-patterns
+difficulty: intermediate
+estimatedTime: 12
+tags: [context, patterns, performance, multi-context, provider composition]
+lastUpdated: 2024-01-15
+---
+
+# Context Patterns
+
+Once you understand the basics of `useContext`, these patterns help you build scalable, performant context-based state that doesn't re-render everything on every change.
+
+## Pattern 1: Split Context for Performance
+
+A single large context re-renders all consumers when any value changes. Split by update frequency:
+
+```tsx
+// ❌ One big context — changing theme re-renders UserPanel
+const AppContext = createContext({ user, theme, notifications })
+
+// ✅ Split — each context only affects its consumers
+const UserContext    = createContext<User | null>(null)
+const ThemeContext   = createContext<'light' | 'dark'>('dark')
+const NotifContext   = createContext<Notification[]>([])
+
+// Components subscribe to only what they need
+function Avatar() {
+  const user = useContext(UserContext)   // re-renders on user changes only
+  return <img src={user?.avatar} />
+}
+
+function ThemeToggle() {
+  const theme = useContext(ThemeContext)  // re-renders on theme changes only
+  return <button>{theme}</button>
+}
+```
+
+## Pattern 2: Stable Context Values with useMemo
+
+```tsx
+function UserProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<User | null>(null)
+
+  // ❌ New object every render → all consumers re-render even when user didn't change
+  return (
+    <UserContext.Provider value={{ user, setUser }}>
+      {children}
+    </UserContext.Provider>
+  )
+}
+
+// ✅ Memoize the value — only changes when user changes
+function UserProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<User | null>(null)
+
+  const value = useMemo(() => ({ user, setUser }), [user])
+
+  return (
+    <UserContext.Provider value={value}>
+      {children}
+    </UserContext.Provider>
+  )
+}
+```
+
+## Pattern 3: State + Dispatch Split
+
+Separate read context from write context. Components that only read state don't re-render when dispatch changes:
+
+```tsx
+const CountStateContext   = createContext<number>(0)
+const CountDispatchContext = createContext<React.Dispatch<Action>>(() => {})
+
+function CountProvider({ children }: { children: React.ReactNode }) {
+  const [count, dispatch] = useReducer(reducer, 0)
+
+  return (
+    <CountStateContext.Provider value={count}>
+      <CountDispatchContext.Provider value={dispatch}>
+        {children}
+      </CountDispatchContext.Provider>
+    </CountStateContext.Provider>
+  )
+}
+
+// Display component — only needs state
+function Display() {
+  const count = useContext(CountStateContext)
+  return <span>{count}</span>
+}
+
+// Button component — only needs dispatch, never re-renders on count change
+function IncrementButton() {
+  const dispatch = useContext(CountDispatchContext)
+  return <button onClick={() => dispatch({ type: 'increment' })}>+</button>
+}
+```
+
+## Pattern 4: Provider Composition
+
+When you have many providers, compose them cleanly:
+
+```tsx
+// Without composition — pyramid of doom
+function App() {
+  return (
+    <ThemeProvider>
+      <AuthProvider>
+        <NotificationProvider>
+          <RouterProvider>
+            <Main />
+          </RouterProvider>
+        </NotificationProvider>
+      </AuthProvider>
+    </ThemeProvider>
+  )
+}
+
+// ✅ Compose into a single AppProviders component
+function AppProviders({ children }: { children: React.ReactNode }) {
+  return (
+    <ThemeProvider>
+      <AuthProvider>
+        <NotificationProvider>
+          {children}
+        </NotificationProvider>
+      </AuthProvider>
+    </ThemeProvider>
+  )
+}
+
+function App() {
+  return (
+    <AppProviders>
+      <Main />
+    </AppProviders>
+  )
+}
+```
+
+## Pattern 5: Custom Hook with Error Boundary
+
+Always wrap `useContext` in a custom hook that throws if used outside the Provider:
+
+```tsx
+const AuthContext = createContext<AuthContextValue | null>(null)
+
+export function useAuth(): AuthContextValue {
+  const ctx = useContext(AuthContext)
+  if (!ctx) {
+    throw new Error(
+      'useAuth must be used within an AuthProvider. ' +
+      'Wrap your component tree with <AuthProvider>.'
+    )
+  }
+  return ctx
+}
+
+// Usage — clean, self-documenting, fails fast
+function ProfileMenu() {
+  const { user, logout } = useAuth()  // TypeScript knows this is non-null
+  return <button onClick={logout}>{user.name}</button>
+}
+```
+
+## Interactive Example — Split Contexts
+
+Two separate contexts for `theme` and `notifications`. Change one without re-rendering consumers of the other:
+
+<LiveEditor code={`import { createContext, useContext, useState, useMemo, useRef } from 'react'
+
+// ─── Context 1: Theme (changes rarely) ───────────────────
+const ThemeCtx = createContext<{ dark: boolean; toggle: () => void }>({ dark: false, toggle: () => {} })
+const useTheme = () => useContext(ThemeCtx)
+
+// ─── Context 2: Notifications (changes frequently) ───────
+const NotifCtx = createContext<{ count: number; add: () => void; clear: () => void }>({ count: 0, add: () => {}, clear: () => {} })
+const useNotifs = () => useContext(NotifCtx)
+
+// ─── Providers ────────────────────────────────────────────
+function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const [dark, setDark] = useState(false)
+  const value = useMemo(() => ({ dark, toggle: () => setDark(v => !v) }), [dark])
+  return <ThemeCtx.Provider value={value}>{children}</ThemeCtx.Provider>
+}
+
+function NotifProvider({ children }: { children: React.ReactNode }) {
+  const [count, setCount] = useState(0)
+  const value = useMemo(() => ({ count, add: () => setCount(c => c + 1), clear: () => setCount(0) }), [count])
+  return <NotifCtx.Provider value={value}>{children}</NotifCtx.Provider>
+}
+
+// ─── Components — each subscribes to only what it needs ───
+function Header() {
+  const { dark, toggle } = useTheme()
+  const { count }        = useNotifs()
+  const renders          = useRef(0); renders.current++
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', background: dark ? '#1e293b' : '#6366f1', borderRadius: 8 }}>
+      <span style={{ color: 'white', fontWeight: 700, fontSize: 14 }}>App Header <span style={{ opacity: 0.6, fontSize: 11 }}>({renders.current}×)</span></span>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        {count > 0 && <span style={{ background: '#ef4444', color: 'white', borderRadius: 999, padding: '1px 7px', fontSize: 12, fontWeight: 700 }}>{count}</span>}
+        <button onClick={toggle} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 12 }}>
+          {dark ? '☀ Light' : '🌙 Dark'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// Only reads theme — won't re-render when notifications change
+function ThemedCard() {
+  const { dark }   = useTheme()
+  const renders    = useRef(0); renders.current++
+  return (
+    <div style={{ padding: '12px 14px', background: dark ? '#1e293b' : '#f8fafc', border: \`1px solid \${dark ? '#334155' : '#e2e8f0'}\`, borderRadius: 8 }}>
+      <div style={{ fontSize: 12, color: dark ? '#94a3b8' : '#64748b' }}>ThemedCard — renders: <strong>{renders.current}×</strong></div>
+      <p style={{ margin: '4px 0 0', fontSize: 13, color: dark ? '#e2e8f0' : '#374151' }}>Only re-renders when theme changes, not on notification updates.</p>
+    </div>
+  )
+}
+
+// Only reads notifications — won't re-render when theme changes
+function NotifPanel() {
+  const { count, add, clear } = useNotifs()
+  const renders = useRef(0); renders.current++
+  return (
+    <div style={{ padding: '12px 14px', background: '#fefce8', border: '1px solid #fde047', borderRadius: 8 }}>
+      <div style={{ fontSize: 12, color: '#92400e' }}>NotifPanel — renders: <strong>{renders.current}×</strong></div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+        <button onClick={add}   style={{ padding: '6px 12px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>+ Add notification</button>
+        <button onClick={clear} style={{ padding: '6px 12px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>Clear</button>
+      </div>
+    </div>
+  )
+}
+
+export default function App() {
+  return (
+    <ThemeProvider>
+      <NotifProvider>
+        <div style={{ fontFamily: 'sans-serif', padding: 16, display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 440 }}>
+          <Header />
+          <ThemedCard />
+          <NotifPanel />
+          <p style={{ margin: 0, fontSize: 11, color: '#9ca3af' }}>
+            Toggle theme → only Header + ThemedCard re-render. Add notification → only Header + NotifPanel re-render.
+          </p>
+        </div>
+      </NotifProvider>
+    </ThemeProvider>
+  )
+}`} />
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- Split contexts by update frequency — don't put unrelated state in one context
+- Memoize context values with `useMemo` to prevent unnecessary consumer re-renders
+- Separate state and dispatch into two contexts — write-only components don't re-render on reads
+- Compose multiple providers into one `AppProviders` component
+- Always wrap `useContext` in a typed custom hook that validates the provider exists
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "How do you prevent unnecessary re-renders in components that use Context?",
+    answer: "Three strategies: (1) Split contexts — separate frequently-changing state (mouse position, scroll) from rarely-changing state (theme, user). Consumers only re-render when their specific context changes. (2) Memoize context values with useMemo — prevents new object references from triggering re-renders when the data hasn't changed. (3) Split state and dispatch into separate contexts — components that only dispatch actions (buttons, forms) don't need to subscribe to state changes and won't re-render when state updates. For very high-frequency updates, Context is inappropriate — use Zustand, Jotai, or useRef instead.",
+    level: "senior"
+  }
+]} />

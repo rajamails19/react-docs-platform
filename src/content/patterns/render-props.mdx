@@ -1,0 +1,219 @@
+---
+title: Render Props
+description: Share component logic by passing a render function as a prop — a powerful pattern before custom hooks.
+category: Design Patterns
+order: 2
+slug: patterns/render-props
+difficulty: intermediate
+estimatedTime: 10
+tags: [render props, patterns, composition, function as child, slots]
+lastUpdated: 2024-01-15
+---
+
+# Render Props
+
+The render prop pattern shares stateful logic between components by passing a function as a prop. The component calls that function with its internal state, letting callers control what gets rendered.
+
+```tsx
+// Component accepts a function prop — calls it with its state
+<DataProvider render={(data) => <Display data={data} />} />
+
+// Or the children-as-function variant:
+<MouseTracker>
+  {({ x, y }) => <Cursor x={x} y={y} />}
+</MouseTracker>
+```
+
+## Classic Example: Mouse Position
+
+```tsx
+interface MousePosition {
+  x: number
+  y: number
+}
+
+interface MouseTrackerProps {
+  render: (pos: MousePosition) => React.ReactNode
+  // OR: children: (pos: MousePosition) => React.ReactNode
+}
+
+function MouseTracker({ render }: MouseTrackerProps) {
+  const [pos, setPos] = useState<MousePosition>({ x: 0, y: 0 })
+
+  return (
+    <div
+      style={{ height: '300px', border: '1px solid #ccc' }}
+      onMouseMove={e => setPos({ x: e.clientX, y: e.clientY })}
+    >
+      {render(pos)}
+    </div>
+  )
+}
+
+// Callers decide what to show — the Tracker doesn't know or care
+<MouseTracker render={({ x, y }) => (
+  <p>Mouse is at ({x}, {y})</p>
+)} />
+
+<MouseTracker render={({ x, y }) => (
+  <img src="/cursor.png" style={{ position: 'absolute', left: x, top: y }} />
+)} />
+```
+
+## Data Fetching with Render Props
+
+```tsx
+interface FetcherProps<T> {
+  url:    string
+  render: (state: { data: T | null; loading: boolean; error: string | null }) => React.ReactNode
+}
+
+function Fetcher<T>({ url, render }: FetcherProps<T>) {
+  const [data,    setData]    = useState<T | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error,   setError]   = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch(url)
+      .then(r => r.json())
+      .then(setData)
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false))
+  }, [url])
+
+  return <>{render({ data, loading, error })}</>
+}
+
+// Usage — caller controls the UI for each state
+<Fetcher<User[]>
+  url="/api/users"
+  render={({ data, loading, error }) => {
+    if (loading) return <Spinner />
+    if (error)   return <p>Error: {error}</p>
+    return <UserTable users={data!} />
+  }}
+/>
+```
+
+## Render Props vs Custom Hooks
+
+```tsx
+// Same logic — render prop version
+function MouseTracker({ render }: { render: (pos: Position) => React.ReactNode }) {
+  const [pos, setPos] = useState({ x: 0, y: 0 })
+  return (
+    <div onMouseMove={e => setPos({ x: e.clientX, y: e.clientY })}>
+      {render(pos)}
+    </div>
+  )
+}
+
+// Same logic — custom hook version (simpler)
+function useMousePosition() {
+  const [pos, setPos] = useState({ x: 0, y: 0 })
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => setPos({ x: e.clientX, y: e.clientY })
+    window.addEventListener('mousemove', handler)
+    return () => window.removeEventListener('mousemove', handler)
+  }, [])
+
+  return pos
+}
+
+// Consumer is much simpler with hooks
+function Cursor() {
+  const { x, y } = useMousePosition()
+  return <p>({x}, {y})</p>
+}
+```
+
+Custom hooks replaced render props for most use cases. But render props still shine when the component itself provides the DOM context for the logic (like `MouseTracker` needing a specific `<div>`).
+
+## Interactive Example — Toggle Render Prop
+
+`Toggle` manages open/closed state and calls its children function with the current value:
+
+<LiveEditor code={`import { useState } from 'react'
+
+// The render prop component — owns state, caller owns UI
+function Toggle({ children }: { children: (props: { on: boolean; toggle: () => void }) => React.ReactNode }) {
+  const [on, setOn] = useState(false)
+  return <>{children({ on, toggle: () => setOn(v => !v })}</>
+}
+
+function Disclosure({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <Toggle>
+      {({ on, toggle }) => (
+        <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden', marginBottom: 10 }}>
+          <button onClick={toggle} style={{ width: '100%', padding: '12px 16px', background: '#f9fafb', border: 'none', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 600, fontSize: 14 }}>
+            {title}
+            <span style={{ transition: 'transform 0.2s', display: 'inline-block', transform: on ? 'rotate(180deg)' : 'none' }}>▾</span>
+          </button>
+          {on && <div style={{ padding: '12px 16px', fontSize: 14, color: '#374151', borderTop: '1px solid #f3f4f6' }}>{children}</div>}
+        </div>
+      )}
+    </Toggle>
+  )
+}
+
+// Same Toggle — now used for a modal
+function ModalExample() {
+  return (
+    <Toggle>
+      {({ on, toggle }) => (
+        <>
+          <button onClick={toggle} style={{ padding: '8px 16px', background: '#6366f1', color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 14 }}>
+            Open Modal
+          </button>
+          {on && (
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}
+              onClick={toggle}>
+              <div style={{ background: 'white', padding: 24, borderRadius: 16, maxWidth: 320, width: '90%' }} onClick={e => e.stopPropagation()}>
+                <h3 style={{ margin: '0 0 8px' }}>Same Toggle, different UI</h3>
+                <p style={{ fontSize: 14, color: '#6b7280', margin: '0 0 16px' }}>The Toggle component doesn't know it's rendering a modal. It just calls children with \`on\` and \`toggle\`.</p>
+                <button onClick={toggle} style={{ padding: '8px 20px', background: '#ef4444', color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer' }}>Close</button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </Toggle>
+  )
+}
+
+export default function App() {
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: 20, maxWidth: 420 }}>
+      <h4 style={{ margin: '0 0 12px', fontSize: 14, fontWeight: 700 }}>Toggle as Accordion</h4>
+      <Disclosure title="What is a render prop?">
+        A function prop that tells a component what to render. The component owns the state; you own the UI.
+      </Disclosure>
+      <Disclosure title="When should I use it?">
+        When the logic is tied to specific DOM context (like needing a wrapping div for mouse tracking) or when you want callers to have full control over the rendered output.
+      </Disclosure>
+
+      <h4 style={{ margin: '16px 0 12px', fontSize: 14, fontWeight: 700 }}>Same Toggle as Modal trigger</h4>
+      <ModalExample />
+    </div>
+  )
+}`} />
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- Render props share logic by calling a function prop with internal state — callers control rendering
+- Two variants: `render` prop and children-as-function
+- Pattern is powerful for logic tied to specific DOM structure (drag, resize, intersection observers)
+- Custom hooks are simpler for pure logic sharing without DOM context
+- Today: prefer custom hooks. Render props are still valid in libraries and component APIs
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "Why did custom hooks largely replace render props, and when are render props still useful?",
+    answer: "Custom hooks replaced render props for logic sharing because: (1) Simpler consumer code — no extra JSX wrapper in the component tree. (2) No nesting/callback hell when composing multiple pieces of logic. (3) DevTools shows a flat component tree instead of deeply wrapped components. Render props are still useful when: (1) The component provides necessary DOM context (a drag zone, a resize observer area). (2) Building library components where you can't know how consumers will render the data. (3) You need conditional rendering based on the state (render nothing, spinner, or content) and want the consumer to control all three. Libraries like React Final Form, Downshift, and React Table still use render props for these reasons.",
+    level: "senior"
+  }
+]} />

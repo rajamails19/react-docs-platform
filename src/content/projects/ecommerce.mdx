@@ -1,0 +1,369 @@
+---
+title: E-Commerce Product Page
+description: Build a production-quality e-commerce product page with cart, image gallery, size selector, and optimistic updates.
+category: Projects
+order: 3
+slug: projects/ecommerce
+difficulty: advanced
+estimatedTime: 45
+tags: [project, ecommerce, cart, Zustand, optimistic updates, React Query, TypeScript]
+lastUpdated: 2024-01-15
+---
+
+# E-Commerce Product Page — Complete Project
+
+We'll build a complete product page with: image gallery with zoom, variant selector (size/color), quantity picker, cart management with Zustand, and optimistic cart updates with React Query.
+
+## Architecture Overview
+
+<MermaidDiagram chart={`
+flowchart TD
+    A[ProductPage] --> B[ImageGallery]
+    A --> C[ProductInfo]
+    A --> D[VariantSelector]
+    A --> E[QuantityPicker]
+    A --> F[AddToCartButton]
+    F --> G[useCartStore Zustand]
+    F --> H[useMutation React Query]
+    H -->|optimistic update| G
+    H -->|rollback on error| G
+    G --> I[CartDrawer]
+    G --> J[CartBadge in Header]
+`} caption="E-Commerce component architecture" />
+
+## Types
+
+```tsx
+// types/product.ts
+export interface ProductImage {
+  id:  string
+  url: string
+  alt: string
+}
+
+export interface ProductVariant {
+  id:       string
+  size:     string
+  color:    string
+  stock:    number
+  price:    number
+}
+
+export interface Product {
+  id:          string
+  name:        string
+  description: string
+  images:      ProductImage[]
+  variants:    ProductVariant[]
+  rating:      number
+  reviewCount: number
+}
+
+export interface CartItem {
+  variantId:  string
+  productId:  string
+  name:       string
+  image:      string
+  price:      number
+  size:       string
+  color:      string
+  quantity:   number
+}
+```
+
+## Cart Store (Zustand)
+
+```tsx
+// stores/cartStore.ts
+import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
+
+interface CartStore {
+  items:        CartItem[]
+  addItem:      (item: CartItem) => void
+  removeItem:   (variantId: string) => void
+  updateQty:    (variantId: string, quantity: number) => void
+  clearCart:    () => void
+  total:        () => number
+  itemCount:    () => number
+}
+
+export const useCartStore = create<CartStore>()(
+  persist(
+    (set, get) => ({
+      items: [],
+
+      addItem: (newItem) => set(state => {
+        const existing = state.items.find(i => i.variantId === newItem.variantId)
+        if (existing) {
+          return {
+            items: state.items.map(i =>
+              i.variantId === newItem.variantId
+                ? { ...i, quantity: i.quantity + newItem.quantity }
+                : i
+            )
+          }
+        }
+        return { items: [...state.items, newItem] }
+      }),
+
+      removeItem: (variantId) => set(state => ({
+        items: state.items.filter(i => i.variantId !== variantId)
+      })),
+
+      updateQty: (variantId, quantity) => set(state => ({
+        items: quantity <= 0
+          ? state.items.filter(i => i.variantId !== variantId)
+          : state.items.map(i => i.variantId === variantId ? { ...i, quantity } : i)
+      })),
+
+      clearCart: () => set({ items: [] }),
+
+      total:     () => get().items.reduce((sum, i) => sum + i.price * i.quantity, 0),
+      itemCount: () => get().items.reduce((sum, i) => sum + i.quantity, 0),
+    }),
+    { name: 'cart-storage' }  // localStorage persistence key
+  )
+)
+```
+
+## Image Gallery Component
+
+```tsx
+// components/ImageGallery.tsx
+import { useState } from 'react'
+import type { ProductImage } from '../types/product'
+
+export function ImageGallery({ images }: { images: ProductImage[] }) {
+  const [activeIndex, setActiveIndex] = useState(0)
+  const [isZoomed,    setIsZoomed]    = useState(false)
+  const [zoomPos,     setZoomPos]     = useState({ x: 50, y: 50 })
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const { left, top, width, height } = e.currentTarget.getBoundingClientRect()
+    const x = ((e.clientX - left) / width) * 100
+    const y = ((e.clientY - top) / height) * 100
+    setZoomPos({ x, y })
+  }
+
+  return (
+    <div className="flex gap-4">
+      {/* Thumbnail strip */}
+      <div className="flex flex-col gap-2">
+        {images.map((img, i) => (
+          <button
+            key={img.id}
+            onClick={() => setActiveIndex(i)}
+            className={`h-16 w-16 overflow-hidden rounded-lg border-2 ${
+              i === activeIndex ? 'border-blue-500' : 'border-transparent'
+            }`}
+          >
+            <img src={img.url} alt={img.alt} className="h-full w-full object-cover" />
+          </button>
+        ))}
+      </div>
+
+      {/* Main image with zoom */}
+      <div
+        className="relative flex-1 cursor-zoom-in overflow-hidden rounded-xl"
+        onMouseEnter={() => setIsZoomed(true)}
+        onMouseLeave={() => setIsZoomed(false)}
+        onMouseMove={handleMouseMove}
+      >
+        <img
+          src={images[activeIndex].url}
+          alt={images[activeIndex].alt}
+          className="h-full w-full object-cover transition-transform duration-200"
+          style={isZoomed ? {
+            transformOrigin: `${zoomPos.x}% ${zoomPos.y}%`,
+            transform: 'scale(2)',
+          } : undefined}
+        />
+      </div>
+    </div>
+  )
+}
+```
+
+## Variant Selector
+
+```tsx
+// components/VariantSelector.tsx
+import type { ProductVariant } from '../types/product'
+
+interface VariantSelectorProps {
+  variants:  ProductVariant[]
+  selected:  ProductVariant | null
+  onSelect:  (variant: ProductVariant) => void
+}
+
+export function VariantSelector({ variants, selected, onSelect }: VariantSelectorProps) {
+  const sizes  = [...new Set(variants.map(v => v.size))]
+  const colors = [...new Set(variants.map(v => v.color))]
+
+  const selectedSize  = selected?.size
+  const selectedColor = selected?.color
+
+  const isAvailable = (size: string, color: string) => {
+    const variant = variants.find(v => v.size === size && v.color === color)
+    return variant && variant.stock > 0
+  }
+
+  const selectVariant = (size: string, color: string) => {
+    const variant = variants.find(v => v.size === size && v.color === color)
+    if (variant) onSelect(variant)
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Color selector */}
+      <div>
+        <p className="mb-2 text-sm font-medium">Color: {selectedColor}</p>
+        <div className="flex gap-2">
+          {colors.map(color => (
+            <button
+              key={color}
+              onClick={() => selectVariant(selectedSize ?? sizes[0], color)}
+              className={`h-8 w-8 rounded-full border-2 ${
+                color === selectedColor ? 'border-blue-500' : 'border-transparent'
+              }`}
+              style={{ backgroundColor: color.toLowerCase() }}
+              aria-label={color}
+              aria-pressed={color === selectedColor}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Size selector */}
+      <div>
+        <p className="mb-2 text-sm font-medium">Size: {selectedSize}</p>
+        <div className="flex flex-wrap gap-2">
+          {sizes.map(size => {
+            const available = isAvailable(size, selectedColor ?? colors[0])
+            return (
+              <button
+                key={size}
+                onClick={() => selectVariant(size, selectedColor ?? colors[0])}
+                disabled={!available}
+                className={`rounded-md border px-4 py-2 text-sm ${
+                  size === selectedSize
+                    ? 'border-blue-500 bg-blue-50 text-blue-700'
+                    : available
+                    ? 'border-gray-300 hover:border-gray-400'
+                    : 'cursor-not-allowed border-gray-200 text-gray-300 line-through'
+                }`}
+              >
+                {size}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+```
+
+## Add to Cart with Optimistic Update
+
+```tsx
+// components/AddToCartButton.tsx
+import { useMutation } from '@tanstack/react-query'
+import { useCartStore } from '../stores/cartStore'
+
+interface AddToCartProps {
+  product:  Product
+  variant:  ProductVariant | null
+  quantity: number
+}
+
+export function AddToCartButton({ product, variant, quantity }: AddToCartProps) {
+  const { addItem, removeItem } = useCartStore()
+
+  const { mutate, isPending } = useMutation({
+    mutationFn: async (cartItem: CartItem) => {
+      // Simulate API call to reserve stock
+      const res = await fetch('/api/cart/add', {
+        method: 'POST',
+        body: JSON.stringify({ variantId: cartItem.variantId, quantity: cartItem.quantity }),
+      })
+      if (!res.ok) throw new Error('Failed to add to cart')
+      return res.json()
+    },
+    onMutate: (cartItem) => {
+      // Optimistic update — show item in cart immediately
+      addItem(cartItem)
+      return cartItem   // context for rollback
+    },
+    onError: (_err, _vars, cartItem) => {
+      // Rollback on failure
+      if (cartItem) removeItem(cartItem.variantId)
+    },
+  })
+
+  const handleAddToCart = () => {
+    if (!variant) return
+    mutate({
+      variantId: variant.id,
+      productId: product.id,
+      name:      product.name,
+      image:     product.images[0].url,
+      price:     variant.price,
+      size:      variant.size,
+      color:     variant.color,
+      quantity,
+    })
+  }
+
+  return (
+    <button
+      onClick={handleAddToCart}
+      disabled={!variant || isPending}
+      className="w-full rounded-xl bg-blue-600 py-4 text-white font-semibold disabled:opacity-50"
+    >
+      {isPending ? 'Adding...' : !variant ? 'Select options' : 'Add to Cart'}
+    </button>
+  )
+}
+```
+
+## Key Patterns Used
+
+<ComparisonTable
+  columns={[
+    { key: 'pattern', label: 'Pattern', highlight: true },
+    { key: 'why', label: 'Why used here' },
+  ]}
+  rows={[
+    { pattern: 'Zustand with persist middleware', why: 'Cart survives page refresh without backend session' },
+    { pattern: 'Optimistic updates', why: 'Instant UI feedback — roll back if server rejects' },
+    { pattern: 'Derived state (total, itemCount)', why: 'Computed from items — no sync needed' },
+    { pattern: 'Set for unique values', why: 'Extract unique sizes/colors from variant array' },
+    { pattern: 'useLayoutEffect for zoom', why: 'Read DOM measurements before paint to avoid flicker' },
+    { pattern: 'aria-pressed for toggle buttons', why: 'Screen readers know which size/color is selected' },
+  ]}
+/>
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- Zustand with `persist` middleware for cart state that survives page refresh
+- Optimistic updates: `onMutate` adds to cart immediately, `onError` rolls back
+- Image zoom with mouse position math (`getBoundingClientRect`)
+- Variant availability checking across size × color dimensions
+- Accessibility: `aria-label`, `aria-pressed` for interactive controls
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "What is an optimistic update and when should you use it?",
+    answer: "An optimistic update assumes the server request will succeed and immediately updates the UI — then rolls back if it fails. Use it for actions that rarely fail (adding to cart, toggling a like, marking a notification read). Don't use it for destructive actions (deleting an account) or when the server may legitimately reject the action (insufficient stock). React Query's useMutation provides onMutate (apply update), onError (rollback), and onSuccess (confirm/correct) callbacks. The pattern creates a faster-feeling UI — the user sees instant feedback without waiting for the network round trip.",
+    level: "senior"
+  },
+  {
+    question: "Why choose Zustand over Redux for cart state in this project?",
+    answer: "Zustand is simpler for this use case: (1) No boilerplate — no action creators, no reducers file, no dispatch. (2) Computed selectors (total, itemCount) are just functions on the store, not selector factories. (3) persist middleware handles localStorage synchronization in one line. (4) Direct mutations — Zustand uses Immer-like API under the hood. Redux would be appropriate if: multiple teams share this state, you need time-travel debugging, or the state logic becomes complex enough to warrant Redux Toolkit's structure. For a self-contained cart feature, Zustand's simplicity wins.",
+    level: "mid"
+  }
+]} />

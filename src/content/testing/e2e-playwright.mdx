@@ -1,0 +1,199 @@
+---
+title: E2E Testing with Playwright
+description: Write end-to-end tests that verify complete user flows across real browsers using Playwright.
+category: Testing
+order: 2
+slug: testing/e2e-playwright
+difficulty: intermediate
+estimatedTime: 12
+tags: [playwright, e2e, end-to-end, testing, browser automation, CI]
+lastUpdated: 2024-01-15
+---
+
+# E2E Testing with Playwright
+
+End-to-end tests run your app in a real browser and simulate complete user journeys. Playwright by Microsoft tests across Chromium, Firefox, and WebKit with a clean async API.
+
+## Setup
+
+```bash
+npm install -D @playwright/test
+npx playwright install   # downloads browser binaries
+```
+
+```ts
+// playwright.config.ts
+import { defineConfig } from '@playwright/test'
+
+export default defineConfig({
+  testDir: './e2e',
+  use: {
+    baseURL: 'http://localhost:3000',
+    screenshot: 'only-on-failure',
+    video: 'retain-on-failure',
+  },
+  webServer: {
+    command: 'npm run dev',
+    url: 'http://localhost:3000',
+    reuseExistingServer: !process.env.CI,
+  },
+})
+```
+
+## Your First E2E Test
+
+```ts
+// e2e/home.spec.ts
+import { test, expect } from '@playwright/test'
+
+test('home page loads and shows title', async ({ page }) => {
+  await page.goto('/')
+
+  await expect(page).toHaveTitle(/React Tutorial/)
+  await expect(page.getByRole('heading', { name: /Learn React/ })).toBeVisible()
+})
+```
+
+## Testing a Complete User Flow
+
+```ts
+// e2e/auth.spec.ts
+import { test, expect } from '@playwright/test'
+
+test('user can sign up, log in, and see dashboard', async ({ page }) => {
+  const email    = `test+${Date.now()}@example.com`
+  const password = 'TestPass123!'
+
+  // 1. Sign up
+  await page.goto('/signup')
+  await page.getByLabel('Email').fill(email)
+  await page.getByLabel('Password').fill(password)
+  await page.getByLabel('Confirm Password').fill(password)
+  await page.getByRole('button', { name: 'Sign Up' }).click()
+
+  // Wait for redirect to dashboard
+  await expect(page).toHaveURL('/dashboard')
+  await expect(page.getByText('Welcome!')).toBeVisible()
+
+  // 2. Log out
+  await page.getByRole('button', { name: 'Logout' }).click()
+  await expect(page).toHaveURL('/login')
+
+  // 3. Log in again
+  await page.getByLabel('Email').fill(email)
+  await page.getByLabel('Password').fill(password)
+  await page.getByRole('button', { name: 'Sign In' }).click()
+
+  await expect(page).toHaveURL('/dashboard')
+})
+```
+
+## Testing Form Validation
+
+```ts
+test('shows validation errors on empty form submission', async ({ page }) => {
+  await page.goto('/signup')
+  await page.getByRole('button', { name: 'Sign Up' }).click()
+
+  await expect(page.getByText('Email is required')).toBeVisible()
+  await expect(page.getByText('Password is required')).toBeVisible()
+})
+
+test('shows error for mismatched passwords', async ({ page }) => {
+  await page.goto('/signup')
+  await page.getByLabel('Password').fill('secret123')
+  await page.getByLabel('Confirm Password').fill('different')
+  await page.getByRole('button', { name: 'Sign Up' }).click()
+
+  await expect(page.getByText('Passwords do not match')).toBeVisible()
+})
+```
+
+## Network Mocking
+
+```ts
+test('shows error when API fails', async ({ page }) => {
+  // Intercept and mock the API response
+  await page.route('**/api/users', route => {
+    route.fulfill({
+      status: 500,
+      body: JSON.stringify({ message: 'Internal server error' }),
+    })
+  })
+
+  await page.goto('/users')
+
+  await expect(page.getByText('Something went wrong')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible()
+})
+```
+
+## Reusable Page Objects
+
+```ts
+// e2e/pages/LoginPage.ts
+import { Page, Locator } from '@playwright/test'
+
+export class LoginPage {
+  readonly emailInput:    Locator
+  readonly passwordInput: Locator
+  readonly submitButton:  Locator
+
+  constructor(private page: Page) {
+    this.emailInput    = page.getByLabel('Email')
+    this.passwordInput = page.getByLabel('Password')
+    this.submitButton  = page.getByRole('button', { name: 'Sign In' })
+  }
+
+  async goto() {
+    await this.page.goto('/login')
+  }
+
+  async login(email: string, password: string) {
+    await this.emailInput.fill(email)
+    await this.passwordInput.fill(password)
+    await this.submitButton.click()
+  }
+}
+
+// Usage
+test('logs in successfully', async ({ page }) => {
+  const loginPage = new LoginPage(page)
+  await loginPage.goto()
+  await loginPage.login('alice@example.com', 'password123')
+  await expect(page).toHaveURL('/dashboard')
+})
+```
+
+<ComparisonTable
+  columns={[
+    { key: 'unit', label: 'Unit / Integration (RTL)' },
+    { key: 'e2e', label: 'E2E (Playwright)', highlight: true },
+  ]}
+  rows={[
+    { feature: 'Speed', unit: 'Fast (seconds)', e2e: 'Slow (minutes)' },
+    { feature: 'Scope', unit: 'Single component', e2e: 'Full user flow' },
+    { feature: 'Confidence', unit: 'Component behavior', e2e: 'System works end to end' },
+    { feature: 'Flakiness', unit: 'Low', e2e: 'Higher (network, timing)' },
+    { feature: 'Debugging', unit: 'Easy', e2e: 'Harder (screenshots, traces)' },
+    { feature: 'Run in CI', unit: 'Always', e2e: 'Parallel, nightly, or PR' },
+  ]}
+/>
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- Playwright runs tests in real browsers (Chromium, Firefox, WebKit) with a clean async API
+- Use `getByRole`, `getByLabel`, `getByText` — same accessible selectors as RTL
+- `page.route()` intercepts network requests for testing error states without a backend
+- Page Object Model (POM) pattern keeps tests readable and DRY
+- Run E2E tests in CI in parallel — use `webServer` config to auto-start the dev server
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "When should you write E2E tests vs unit/integration tests?",
+    answer: "Follow the testing trophy: most tests should be integration (RTL-style component tests), fewer E2E. Write E2E for: (1) Critical business paths — sign up, login, checkout, payment. (2) Flows that span multiple pages or require real browser APIs. (3) Cross-browser compatibility for key features. Avoid E2E for: every happy path (RTL is faster and less flaky), pure UI states that can be tested with component tests, and functionality that needs to run thousands of times (too slow). The rule: if a bug in this flow would cost significant revenue or users, write an E2E test for it.",
+    level: "senior"
+  }
+]} />

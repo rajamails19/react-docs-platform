@@ -1,0 +1,489 @@
+---
+title: JavaScript Expressions in JSX
+description: Master using JavaScript expressions inside JSX curly braces — from simple variables to conditional rendering, list mapping, and function calls.
+category: JSX
+order: 2
+slug: jsx/expressions
+difficulty: beginner
+estimatedTime: 13
+tags: [jsx, expressions, curly-braces, conditional-rendering, map, ternary, short-circuit, javascript]
+lastUpdated: 2024-01-15
+---
+
+# JavaScript Expressions in JSX
+
+JSX and JavaScript live side by side, connected through **curly braces `{}`**. Whenever you want to embed a JavaScript value inside your JSX, you wrap it in `{}`. This single rule is the key to building dynamic UIs.
+
+```tsx
+const name = 'Alice'
+const element = <h1>Hello, {name}!</h1>
+// Renders: <h1>Hello, Alice!</h1>
+```
+
+## What Are Expressions?
+
+A JavaScript **expression** is any piece of code that evaluates to a value. Expressions can go inside JSX curly braces. A **statement** performs an action but doesn't produce a value — statements cannot go inside JSX.
+
+```tsx
+// ✅ Expressions — produce a value
+{name}                    // variable reference
+{42}                      // number literal
+{'hello'}                 // string literal
+{user.email}              // property access
+{count + 1}               // arithmetic
+{isAdmin ? 'Yes' : 'No'}  // ternary
+{formatDate(date)}        // function call
+{items.map(i => <li>{i}</li>)} // map (returns array)
+{isLoggedIn && <Dashboard />}  // logical AND
+
+// ❌ Statements — do NOT produce a value (can't use in JSX)
+{if (isAdmin) { ... }}    // if/else is a statement
+{for (let i of items) {}} // for loop is a statement
+{const x = 5}             // variable declaration is a statement
+```
+
+<Callout type="info" title="The curly brace rule">
+Curly braces in JSX are an escape hatch to JavaScript. Anything inside `{}` must be a single JavaScript expression — something that produces a value. If you need statements (if/else, loops), handle them outside the JSX return, then embed the result.
+</Callout>
+
+## Types of Expressions You Can Use
+
+### Strings and Numbers
+
+```tsx
+const username = 'Alice'
+const score = 9800
+const pi = 3.14159
+
+function Stats() {
+  return (
+    <div>
+      <p>Player: {username}</p>
+      <p>Score: {score}</p>
+      <p>Pi to 2 decimal places: {pi.toFixed(2)}</p>
+      <p>Score doubled: {score * 2}</p>
+    </div>
+  )
+}
+```
+
+### Object Property Access
+
+```tsx
+interface User {
+  name: string
+  email: string
+  address: {
+    city: string
+    country: string
+  }
+}
+
+function UserInfo({ user }: { user: User }) {
+  return (
+    <div>
+      <h2>{user.name}</h2>
+      <p>{user.email}</p>
+      <p>{user.address.city}, {user.address.country}</p>
+    </div>
+  )
+}
+```
+
+### Function Calls
+
+Any function call that returns a renderable value works:
+
+```tsx
+function formatCurrency(amount: number, currency = 'USD') {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency,
+  }).format(amount)
+}
+
+function formatDate(date: Date) {
+  return date.toLocaleDateString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  })
+}
+
+function OrderSummary({ total, orderDate }: { total: number; orderDate: Date }) {
+  return (
+    <div>
+      <p>Total: {formatCurrency(total)}</p>
+      <p>Ordered on: {formatDate(orderDate)}</p>
+      {/* Even IIFE (immediately invoked function expression) works */}
+      <p>Tax: {(() => formatCurrency(total * 0.08))()}</p>
+    </div>
+  )
+}
+```
+
+### Template Literals
+
+```tsx
+function Avatar({ firstName, lastName, size }: AvatarProps) {
+  const initials = `${firstName[0]}${lastName[0]}`
+  const fullName = `${firstName} ${lastName}`
+
+  return (
+    <div
+      className={`avatar avatar-${size}`}
+      aria-label={`Avatar for ${fullName}`}
+      title={`${fullName}'s profile picture`}
+    >
+      {initials}
+    </div>
+  )
+}
+```
+
+### Arrays
+
+React can render arrays of elements. Each element should have a `key` prop:
+
+```tsx
+const colors = ['red', 'green', 'blue']
+
+// Arrays of JSX elements render inline
+function ColorList() {
+  return (
+    <ul>
+      {[
+        <li key="red">Red</li>,
+        <li key="green">Green</li>,
+        <li key="blue">Blue</li>,
+      ]}
+    </ul>
+  )
+}
+```
+
+## Rendering Lists with `map()`
+
+`Array.prototype.map()` is the standard way to render lists in React. It's an expression (returns a new array), so it works inside JSX curly braces.
+
+```tsx
+interface Product {
+  id: number
+  name: string
+  price: number
+}
+
+function ProductList({ products }: { products: Product[] }) {
+  return (
+    <ul className="product-list">
+      {products.map(product => (
+        <li key={product.id} className="product-item">
+          <span>{product.name}</span>
+          <span>${product.price}</span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+```
+
+<Callout type="warning" title="Always provide a key prop when mapping">
+Each element in a mapped list needs a unique `key` prop. React uses keys to efficiently update the list when items are added, removed, or reordered. Use stable IDs from your data (like `product.id`), never array index if the list can be reordered or filtered.
+</Callout>
+
+### Mapping to Complex Elements
+
+```tsx
+interface Article {
+  id: string
+  title: string
+  author: string
+  publishedAt: Date
+  excerpt: string
+  tags: string[]
+}
+
+function ArticleFeed({ articles }: { articles: Article[] }) {
+  return (
+    <section className="feed">
+      {articles.map(article => (
+        <article key={article.id} className="article-card">
+          <header>
+            <h2>{article.title}</h2>
+            <div className="meta">
+              <span>By {article.author}</span>
+              <time dateTime={article.publishedAt.toISOString()}>
+                {article.publishedAt.toLocaleDateString()}
+              </time>
+            </div>
+          </header>
+
+          <p className="excerpt">{article.excerpt}</p>
+
+          <footer className="tags">
+            {article.tags.map(tag => (
+              <span key={tag} className="tag">
+                #{tag}
+              </span>
+            ))}
+          </footer>
+        </article>
+      ))}
+    </section>
+  )
+}
+```
+
+## Conditional Rendering Patterns
+
+Since `if/else` statements can't go inside JSX, you need expression-based alternatives.
+
+### Ternary Operator
+
+The most versatile conditional: `condition ? valueIfTrue : valueIfFalse`
+
+```tsx
+function UserStatus({ isOnline }: { isOnline: boolean }) {
+  return (
+    <span className={isOnline ? 'status-online' : 'status-offline'}>
+      {isOnline ? 'Online' : 'Offline'}
+    </span>
+  )
+}
+
+// Rendering different components:
+function ProfilePage({ user, isLoading }: Props) {
+  return (
+    <div>
+      {isLoading ? (
+        <LoadingSpinner />
+      ) : (
+        <UserProfile user={user} />
+      )}
+    </div>
+  )
+}
+```
+
+### Logical AND (`&&`) — Render or Nothing
+
+When you want to render something or nothing (no else case):
+
+```tsx
+function Notification({ message, hasUnread }: Props) {
+  return (
+    <div className="notification">
+      {hasUnread && <span className="badge">{message}</span>}
+      <BellIcon />
+    </div>
+  )
+}
+```
+
+**Critical gotcha:** `&&` with `0` renders the number `0`, not nothing:
+
+```tsx
+const count = 0
+
+// ❌ Renders "0" in the DOM — the number zero is falsy but renderable!
+{count && <Badge count={count} />}
+
+// ✅ Use boolean explicitly
+{count > 0 && <Badge count={count} />}
+
+// ✅ Or use ternary
+{count ? <Badge count={count} /> : null}
+```
+
+### Logical OR (`||`) — Fallback Value
+
+```tsx
+function DisplayName({ user }: { user: User | null }) {
+  return (
+    <span>{user?.displayName || user?.email || 'Anonymous'}</span>
+  )
+}
+```
+
+### Nullish Coalescing (`??`) — Only Null/Undefined Fallback
+
+```tsx
+// ?? only falls back for null or undefined (not 0, '', false)
+function Score({ value }: { value: number | null }) {
+  return <span>{value ?? 'No score yet'}</span>
+}
+// If value = 0, renders "0" (correct!)
+// If value = null, renders "No score yet"
+```
+
+### Optional Chaining in JSX
+
+```tsx
+function UserCard({ user }: { user: User | null }) {
+  return (
+    <div>
+      {/* Optional chaining prevents crashes if user is null */}
+      <p>{user?.name ?? 'Guest'}</p>
+      <p>{user?.address?.city ?? 'Location unknown'}</p>
+      <img src={user?.avatarUrl} alt={user?.name ?? 'User'} />
+    </div>
+  )
+}
+```
+
+## Handling Complex Conditionals
+
+When your conditional logic is complex, extract it outside the JSX:
+
+```tsx
+// ❌ Hard to read — nested ternaries in JSX
+function StatusMessage({ user, isLoading, error }) {
+  return (
+    <div>
+      {isLoading
+        ? <Spinner />
+        : error
+          ? <ErrorMessage message={error} />
+          : user
+            ? <WelcomeMessage name={user.name} />
+            : <LoginPrompt />
+      }
+    </div>
+  )
+}
+
+// ✅ Compute before return — clean and readable
+function StatusMessage({ user, isLoading, error }) {
+  function renderContent() {
+    if (isLoading) return <Spinner />
+    if (error)     return <ErrorMessage message={error} />
+    if (user)      return <WelcomeMessage name={user.name} />
+    return <LoginPrompt />
+  }
+
+  return <div>{renderContent()}</div>
+}
+```
+
+## Nested Expressions
+
+Expressions can be nested — a mapped array can contain conditional expressions:
+
+```tsx
+interface Task {
+  id: string
+  title: string
+  done: boolean
+  priority: 'low' | 'medium' | 'high'
+  dueDate?: Date
+}
+
+function TaskList({ tasks }: { tasks: Task[] }) {
+  return (
+    <ul>
+      {tasks
+        .filter(task => !task.done)  // filter outside map for clarity
+        .map(task => (
+          <li
+            key={task.id}
+            className={`task priority-${task.priority}`}
+          >
+            <span className="task-title">{task.title}</span>
+
+            {/* Nested conditional inside map */}
+            {task.dueDate && (
+              <time
+                dateTime={task.dueDate.toISOString()}
+                className={task.dueDate < new Date() ? 'overdue' : 'upcoming'}
+              >
+                {task.dueDate < new Date() ? '⚠️ Overdue: ' : 'Due: '}
+                {task.dueDate.toLocaleDateString()}
+              </time>
+            )}
+
+            {task.priority === 'high' && (
+              <span className="urgent-badge">Urgent</span>
+            )}
+          </li>
+        ))
+      }
+    </ul>
+  )
+}
+```
+
+## What Cannot Go in Curly Braces
+
+```tsx
+// ❌ if statement — use ternary or && instead
+{if (show) { <p>Visible</p> }}
+
+// ❌ for loop — use .map() instead
+{for (const item of items) { <li>{item}</li> }}
+
+// ❌ variable declaration — declare outside JSX
+{const x = computeSomething()}
+
+// ❌ Object literal alone (ambiguous with JSX block) — wrap in ()
+{key: 'value'}  // React reads this as a JSX block!
+{({key: 'value'})}  // ✅ This would work, but you rarely need this
+```
+
+## Rendering Special Values
+
+React treats some values as "render nothing":
+
+```tsx
+// These render NOTHING (no DOM output):
+{null}
+{undefined}
+{false}
+{true}  // true also renders nothing!
+
+// These render visible output (may surprise you):
+{0}           // renders the number "0"
+{''}          // renders an empty string (no visible output but present in DOM)
+{NaN}         // renders "NaN"
+```
+
+<LiveEditor code={`function ConditionalDemo() {
+  const count = 0
+  const name = ''
+  const flag = false
+
+  return (
+    <div style={{ fontFamily: 'monospace', padding: 16 }}>
+      <p>count (0): [{count}]</p>
+      <p>name (''): [{name}]</p>
+      <p>flag (false): [{flag}]</p>
+      <p>null: [{null}]</p>
+      <p>undefined: [{undefined}]</p>
+      <p>count > 0 && "has items": [{count > 0 && "has items"}]</p>
+      <p>count || "no items": [{count || "no items"}]</p>
+      <p>count ?? "unknown": [{count ?? "unknown"}]</p>
+    </div>
+  )
+}`} />
+
+<Callout type="success" title="The mental model">
+Think of JSX curly braces as a "window" into JavaScript. Anything that is a valid JavaScript expression — something that produces a single value — can appear in that window. If you have a flow-control structure (if, for, while) that you need, resolve it outside the JSX and pass the result through the window.
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "What is the difference between a JavaScript expression and a statement, and why does it matter in JSX?",
+    answer: "An expression evaluates to a single value (variables, function calls, ternaries, arithmetic, array.map()). A statement performs an action but doesn't produce a value (if/else blocks, for loops, variable declarations). JSX curly braces {} can only contain expressions — they need a value to embed. Statements don't produce values so they can't go inside JSX. Workaround: move if/else logic before the return statement, use ternary operators instead of if/else, use array.map() instead of for loops.",
+    level: "junior"
+  },
+  {
+    question: "Why does `{0 && <Component />}` render '0' instead of nothing, and how do you fix it?",
+    answer: "JavaScript's && operator returns the first falsy value it encounters, or the last value if all are truthy. Since 0 is falsy, `0 && <Component />` evaluates to 0 (the number), not false. React renders 0 as a text node in the DOM because it's a number, while it renders false, null, and undefined as nothing. Fix: use a boolean expression — `count > 0 && <Component />` — or use a ternary: `count ? <Component /> : null`. This is one of the most common JSX gotchas for beginners.",
+    level: "junior"
+  },
+  {
+    question: "What are the patterns for conditional rendering in JSX and when would you use each?",
+    answer: "Four main patterns: (1) Ternary (condition ? A : B) — use when you have two alternatives, like showing a Spinner or content. (2) Logical AND (condition && element) — use for show-or-nothing cases with no else branch. Beware: use boolean conditions, not counts that can be 0. (3) Early return or helper function — use when conditions are complex or deeply nested; extract a renderContent() function called inside JSX. (4) Switch/if-else outside JSX — compute the element to render in a variable before the return, then embed the variable: const content = loading ? <Spinner /> : <Data />; return <div>{content}</div>. The last two patterns are best for avoiding hard-to-read nested ternaries.",
+    level: "mid"
+  }
+]} />

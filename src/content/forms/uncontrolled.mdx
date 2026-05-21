@@ -1,0 +1,488 @@
+---
+title: Uncontrolled Inputs
+description: Learn when and how to use uncontrolled inputs with useRef, defaultValue, forwardRef, and when React Hook Form gives you the best of both worlds.
+category: Forms
+order: 2
+slug: forms/uncontrolled
+difficulty: intermediate
+estimatedTime: 18
+tags: [forms, uncontrolled inputs, useRef, defaultValue, forwardRef, react hook form]
+lastUpdated: "2024-01-15"
+---
+
+# Uncontrolled Inputs
+
+Uncontrolled inputs let the DOM manage form values instead of React state. You read values when you need them (typically on submit) rather than tracking every keystroke. This is closer to how plain HTML forms work.
+
+## The Core Distinction
+
+In a controlled input, React state is the source of truth. In an uncontrolled input, the DOM node itself is the source of truth — you access its current value by reading `ref.current.value`:
+
+```tsx
+// Controlled — React state drives the value
+function ControlledInput() {
+  const [value, setValue] = useState('')
+  return <input value={value} onChange={e => setValue(e.target.value)} />
+}
+
+// Uncontrolled — DOM drives the value, ref provides access
+function UncontrolledInput() {
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const handleSubmit = () => {
+    console.log(inputRef.current?.value)  // read on demand
+  }
+
+  return (
+    <>
+      <input ref={inputRef} defaultValue="" />
+      <button onClick={handleSubmit}>Read value</button>
+    </>
+  )
+}
+```
+
+## `defaultValue` vs `value`
+
+This distinction is critical and a common source of confusion:
+
+| Prop | Behaviour | Use with |
+|---|---|---|
+| `value` | Controlled — React owns the value, user can't change it without onChange | Controlled inputs |
+| `defaultValue` | Sets the initial value only — DOM takes over after mount | Uncontrolled inputs |
+| `defaultChecked` | Sets the initial checked state for checkboxes/radios | Uncontrolled checkboxes |
+
+```tsx
+// ✅ defaultValue — sets initial value, DOM manages updates
+<input ref={ref} defaultValue="Initial text" />
+
+// ❌ value without onChange — read-only, user can't type
+<input ref={ref} value="Initial text" />
+
+// ❌ Both — React warns; defaultValue is ignored when value is present
+<input ref={ref} value={val} defaultValue="Initial text" />
+```
+
+<Callout type="warning">
+If you use `value` on an uncontrolled input (without `onChange`), React makes the input read-only and logs a console warning. The browser will block all user keystrokes because React enforces that the DOM value always equals the `value` prop. Use `defaultValue` for uncontrolled inputs.
+</Callout>
+
+## `useRef` with Form Elements
+
+`useRef` returns a mutable object with a `.current` property. When you attach the ref to a DOM element, `.current` points to the actual DOM node:
+
+```tsx
+function LoginForm() {
+  const emailRef    = useRef<HTMLInputElement>(null)
+  const passwordRef = useRef<HTMLInputElement>(null)
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+
+    const email    = emailRef.current?.value ?? ''
+    const password = passwordRef.current?.value ?? ''
+
+    if (!email || !password) {
+      alert('Please fill in all fields.')
+      return
+    }
+
+    console.log({ email, password })
+    // Reset after submit
+    emailRef.current!.value    = ''
+    passwordRef.current!.value = ''
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <div>
+        <label htmlFor="email">Email</label>
+        <input id="email" type="email" ref={emailRef} defaultValue="" />
+      </div>
+      <div>
+        <label htmlFor="password">Password</label>
+        <input id="password" type="password" ref={passwordRef} defaultValue="" />
+      </div>
+      <button type="submit">Log In</button>
+    </form>
+  )
+}
+```
+
+<Callout type="info">
+Accessing `ref.current` is synchronous — you read the DOM node's current value at the moment you call it. This is different from state, which is captured in the closure at render time. Refs always give you the *latest* value, making them ideal for reading-on-submit patterns.
+</Callout>
+
+## Reading Values on Submit Only
+
+Uncontrolled inputs shine when you only need form data at the moment of submission. No re-renders happen while the user types, making this approach more performant for large forms:
+
+```tsx
+interface ProfileData {
+  displayName: string
+  website: string
+  location: string
+  bio: string
+}
+
+function ProfileForm({ onSave }: { onSave: (data: ProfileData) => void }) {
+  const formRef = useRef<HTMLFormElement>(null)
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+
+    // FormData reads all named fields from the form DOM node at once
+    const fd = new FormData(formRef.current!)
+    const data: ProfileData = {
+      displayName: fd.get('displayName') as string,
+      website:     fd.get('website') as string,
+      location:    fd.get('location') as string,
+      bio:         fd.get('bio') as string,
+    }
+
+    onSave(data)
+    formRef.current?.reset()   // native reset — clears all fields
+  }
+
+  return (
+    <form ref={formRef} onSubmit={handleSubmit}>
+      <input  name="displayName" defaultValue="" placeholder="Display name" />
+      <input  name="website"     defaultValue="" placeholder="https://…" type="url" />
+      <input  name="location"    defaultValue="" placeholder="City, Country" />
+      <textarea name="bio"       defaultValue="" placeholder="About you…" />
+      <button type="submit">Save Profile</button>
+    </form>
+  )
+}
+```
+
+<Callout type="tip">
+`new FormData(formElement)` is a native browser API that reads all `name`d form fields in one shot. Combined with a ref to the form element, it gives you a clean uncontrolled form without a ref per field. The `form.reset()` method also clears every field back to its `defaultValue`.
+</Callout>
+
+## When to Use Uncontrolled Inputs
+
+<ComparisonTable
+  columns={['Scenario', 'Recommended approach', 'Reason']}
+  rows={[
+    ['File inputs', 'Uncontrolled (always)', 'Browsers never allow programmatic value setting for <input type="file">'],
+    ['Simple submit-only form', 'Uncontrolled', 'No per-keystroke state or re-renders needed'],
+    ['Integrating with a third-party DOM library (e.g. date picker, rich text editor)', 'Uncontrolled + ref', 'Library manages its own DOM; fighting it with controlled state causes conflicts'],
+    ['Instant search / live character count', 'Controlled', 'Need to react to every keystroke'],
+    ['Dependent fields (city depends on country)', 'Controlled', 'Need to read one field to update another in real time'],
+    ['Complex validation with field-level feedback', 'Controlled or React Hook Form', 'Controlled state makes error display straightforward'],
+    ['Large form (50+ fields), performance-sensitive', 'React Hook Form (uncontrolled)', 'RHF avoids per-keystroke re-renders while providing DX of controlled'],
+  ]}
+/>
+
+## File Inputs: Always Uncontrolled
+
+File inputs are always uncontrolled in React — the browser enforces this as a security measure. You cannot set a file input's value programmatically:
+
+```tsx
+function FileUpload() {
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [fileName, setFileName] = useState<string | null>(null)
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) setFileName(file.name)
+  }
+
+  const handleUpload = async () => {
+    const file = fileRef.current?.files?.[0]
+    if (!file) return
+
+    const formData = new FormData()
+    formData.append('file', file)
+
+    await fetch('/api/upload', { method: 'POST', body: formData })
+    // Reset: you CAN set value to '' to clear a file input
+    if (fileRef.current) fileRef.current.value = ''
+    setFileName(null)
+  }
+
+  return (
+    <div>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*,.pdf"
+        onChange={handleChange}
+      />
+      {fileName && <p>Selected: {fileName}</p>}
+      <button onClick={handleUpload} disabled={!fileName}>
+        Upload
+      </button>
+    </div>
+  )
+}
+```
+
+## `forwardRef` for Custom Input Components
+
+When you build a reusable input component and the parent needs to attach a ref to the underlying DOM element, use `forwardRef`:
+
+```tsx
+import { forwardRef } from 'react'
+
+interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+  label: string
+  error?: string
+}
+
+// forwardRef lets the parent attach a ref to the inner <input>
+const TextInput = forwardRef<HTMLInputElement, InputProps>(
+  ({ label, error, ...props }, ref) => {
+    return (
+      <div className="field">
+        <label>{label}</label>
+        <input
+          ref={ref}           // forwards the parent's ref to the DOM node
+          aria-invalid={!!error}
+          {...props}
+        />
+        {error && <span className="error">{error}</span>}
+      </div>
+    )
+  }
+)
+TextInput.displayName = 'TextInput'
+
+// Parent can now hold a ref to the inner DOM input
+function Form() {
+  const firstNameRef = useRef<HTMLInputElement>(null)
+
+  const focusFirst = () => firstNameRef.current?.focus()
+
+  return (
+    <form>
+      <TextInput
+        ref={firstNameRef}
+        label="First Name"
+        name="firstName"
+        defaultValue=""
+      />
+      <button type="button" onClick={focusFirst}>
+        Focus First Name
+      </button>
+    </form>
+  )
+}
+```
+
+<Callout type="info">
+Without `forwardRef`, refs attached to custom components point to the component function — which has no DOM node. `forwardRef` is the escape hatch that passes the ref through to whichever DOM element the component decides to expose.
+</Callout>
+
+## React Hook Form: Best of Both Worlds
+
+React Hook Form (RHF) is a library that uses uncontrolled inputs internally (refs, not state) while providing a DX that rivals or exceeds controlled inputs. It eliminates the key tradeoffs:
+
+- No re-renders on every keystroke (uncontrolled performance).
+- Built-in validation, error state, and form submission handling (controlled DX).
+- Works with native inputs and any UI library.
+
+```tsx
+import { useForm } from 'react-hook-form'
+
+interface SignupValues {
+  username: string
+  email: string
+  password: string
+  agreeToTerms: boolean
+}
+
+function SignupForm() {
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+    reset,
+  } = useForm<SignupValues>({ defaultValues: { agreeToTerms: false } })
+
+  const onSubmit = async (data: SignupValues) => {
+    await submitToServer(data)
+    reset()
+  }
+
+  return (
+    <form onSubmit={handleSubmit(onSubmit)}>
+      <div>
+        <label>Username</label>
+        <input
+          {...register('username', {
+            required: 'Username is required.',
+            minLength: { value: 3, message: 'Must be at least 3 characters.' },
+          })}
+        />
+        {errors.username && <span>{errors.username.message}</span>}
+      </div>
+
+      <div>
+        <label>Email</label>
+        <input
+          type="email"
+          {...register('email', {
+            required: 'Email is required.',
+            pattern: {
+              value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+              message: 'Invalid email address.',
+            },
+          })}
+        />
+        {errors.email && <span>{errors.email.message}</span>}
+      </div>
+
+      <div>
+        <label>Password</label>
+        <input
+          type="password"
+          {...register('password', {
+            required: 'Password is required.',
+            minLength: { value: 8, message: 'Must be at least 8 characters.' },
+          })}
+        />
+        {errors.password && <span>{errors.password.message}</span>}
+      </div>
+
+      <label>
+        <input type="checkbox" {...register('agreeToTerms', { required: 'You must agree.' })} />
+        {' '}I agree to the Terms of Service
+      </label>
+      {errors.agreeToTerms && <span>{errors.agreeToTerms.message}</span>}
+
+      <button type="submit" disabled={isSubmitting}>
+        {isSubmitting ? 'Creating account…' : 'Create Account'}
+      </button>
+    </form>
+  )
+}
+```
+
+<Callout type="success">
+`register()` returns `{ name, ref, onChange, onBlur }` which spread onto the input. RHF uses those refs internally to track values without state, then validates on blur/submit and updates `formState.errors` (which *does* trigger a re-render, but only when validation results change — not on every keystroke).
+</Callout>
+
+## Live Example: Uncontrolled Form with `useRef`
+
+<LiveEditor code={`import { useRef, useState } from 'react'
+
+export default function App() {
+  const nameRef    = useRef(null)
+  const emailRef   = useRef(null)
+  const messageRef = useRef(null)
+  const fileRef    = useRef(null)
+
+  const [submitted, setSubmitted] = useState(null)
+  const [errors, setErrors]       = useState({})
+
+  const handleSubmit = e => {
+    e.preventDefault()
+
+    const name    = nameRef.current.value.trim()
+    const email   = emailRef.current.value.trim()
+    const message = messageRef.current.value.trim()
+    const file    = fileRef.current.files[0]
+
+    const newErrors = {}
+    if (!name)            newErrors.name    = 'Name is required.'
+    if (!email.includes('@')) newErrors.email = 'Valid email required.'
+    if (message.length < 10)  newErrors.message = 'Message must be at least 10 characters.'
+
+    setErrors(newErrors)
+
+    if (Object.keys(newErrors).length === 0) {
+      setSubmitted({ name, email, message, fileName: file?.name ?? 'none' })
+      e.target.reset()   // native reset — clears all fields
+    }
+  }
+
+  const inputStyle = hasError => ({
+    display: 'block', width: '100%', padding: '8px 10px', marginTop: 4, marginBottom: 4,
+    borderRadius: 4, border: \`1px solid \${hasError ? '#dc2626' : '#d1d5db'}\`,
+    boxSizing: 'border-box',
+  })
+  const errorStyle = { color: '#dc2626', fontSize: 13 }
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: 24, maxWidth: 420 }}>
+      <h2>Contact Form (Uncontrolled)</h2>
+      <p style={{ fontSize: 13, color: '#6b7280' }}>
+        No state tracks keystrokes — values are read from DOM refs on submit.
+        Open React DevTools to confirm: no state updates while typing.
+      </p>
+
+      <form onSubmit={handleSubmit} noValidate>
+        <div>
+          <label><strong>Name</strong>
+            <input ref={nameRef} type="text" defaultValue=""
+              style={inputStyle(errors.name)} placeholder="Your name" />
+          </label>
+          {errors.name && <p style={errorStyle}>{errors.name}</p>}
+        </div>
+
+        <div>
+          <label><strong>Email</strong>
+            <input ref={emailRef} type="email" defaultValue=""
+              style={inputStyle(errors.email)} placeholder="you@example.com" />
+          </label>
+          {errors.email && <p style={errorStyle}>{errors.email}</p>}
+        </div>
+
+        <div>
+          <label><strong>Message</strong>
+            <textarea ref={messageRef} defaultValue="" rows={4}
+              style={inputStyle(errors.message)} placeholder="Your message (10+ chars)…" />
+          </label>
+          {errors.message && <p style={errorStyle}>{errors.message}</p>}
+        </div>
+
+        <div>
+          <label><strong>Attachment (optional)</strong>
+            <input ref={fileRef} type="file" accept="image/*,.pdf"
+              style={{ display: 'block', marginTop: 4 }} />
+          </label>
+        </div>
+
+        <button type="submit"
+          style={{ marginTop: 16, padding: '8px 20px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>
+          Send Message
+        </button>
+      </form>
+
+      {submitted && (
+        <div style={{ marginTop: 20, padding: 16, background: '#f0fdf4', borderRadius: 8, border: '1px solid #bbf7d0' }}>
+          <h3 style={{ color: '#16a34a', margin: '0 0 8px' }}>Message Sent!</h3>
+          <p><strong>Name:</strong> {submitted.name}</p>
+          <p><strong>Email:</strong> {submitted.email}</p>
+          <p><strong>Message:</strong> {submitted.message}</p>
+          <p><strong>Attachment:</strong> {submitted.fileName}</p>
+        </div>
+      )}
+    </div>
+  )
+}`} />
+
+<InterviewQA questions={[
+  {
+    question: "What is the difference between defaultValue and value on a React input?",
+    answer: "value makes the input controlled — React owns the value and enforces that the DOM always reflects the value prop. Without a matching onChange, the input is read-only. defaultValue sets only the initial value at mount time; after that the DOM manages the value freely. defaultValue is the right prop for uncontrolled inputs.",
+    level: "beginner"
+  },
+  {
+    question: "Why are file inputs always uncontrolled in React?",
+    answer: "Browsers enforce a security restriction that prevents JavaScript from programmatically setting the value of a file input. This is by design — if scripts could set file input values, they could silently pre-select arbitrary files for upload. React cannot make file inputs controlled because there is no way to set their value to reflect state. You must always use a ref to read the selected files from e.target.files or ref.current.files.",
+    level: "intermediate"
+  },
+  {
+    question: "What problem does forwardRef solve and when do you need it?",
+    answer: "When you place a ref on a custom component (e.g., <MyInput ref={inputRef} />), the ref points to the component's function — which is not a DOM node. forwardRef wraps the component and receives the ref as a second argument, allowing the component to attach it to whichever DOM element should be exposed to the parent. You need it whenever a parent must imperatively access a DOM node (to focus, measure, or read value) inside a child component.",
+    level: "intermediate"
+  },
+  {
+    question: "How does React Hook Form achieve zero re-renders during typing while still supporting validation?",
+    answer: "RHF uses useRef internally to track input values instead of useState, so typing never triggers a re-render. It registers native event listeners (onChange/onBlur) via the ref, reads values synchronously when needed, and runs validation logic directly. When validation results change — and only then — it calls setState to update formState.errors, causing a targeted re-render of just the error displays. This gives controlled-like DX with uncontrolled performance.",
+    level: "advanced"
+  }
+]} />

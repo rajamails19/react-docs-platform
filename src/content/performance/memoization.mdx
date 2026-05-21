@@ -1,0 +1,787 @@
+---
+title: Memoization in React
+description: Master React.memo, useMemo, and useCallback to eliminate unnecessary re-renders and build high-performance React applications.
+category: Performance
+order: 2
+slug: performance/memoization
+difficulty: advanced
+estimatedTime: 25
+tags: [memoization, React.memo, useMemo, useCallback, performance, profiling, re-renders, optimization]
+lastUpdated: "2024-01-15"
+---
+
+# Memoization in React
+
+Memoization is a caching technique where you store the result of an expensive computation and return the cached result when the same inputs appear again. React ships three memoization primitives: `React.memo`, `useMemo`, and `useCallback`. Used correctly they eliminate wasted renders. Used carelessly they add memory pressure and complexity with no measurable benefit.
+
+<Callout type="warning" title="Profile before you memoize">
+The biggest memoization mistake is applying it everywhere "just in case." Memoization has a cost: memory allocation, reference comparisons on every render, and cognitive overhead for future maintainers. Always profile with React DevTools first to confirm a real problem exists before optimizing.
+</Callout>
+
+## What Is Memoization?
+
+At its core, memoization is a lookup table keyed on inputs:
+
+```ts
+// Conceptual implementation
+function memoize<T>(fn: (...args: unknown[]) => T) {
+  const cache = new Map<string, T>()
+  return (...args: unknown[]): T => {
+    const key = JSON.stringify(args)
+    if (cache.has(key)) return cache.get(key)!
+    const result = fn(...args)
+    cache.set(key, result)
+    return result
+  }
+}
+```
+
+React's memoization primitives work the same way — they skip expensive work when inputs have not changed since the last render.
+
+<MermaidDiagram chart={`
+flowchart TD
+    A[Parent renders] --> B{Props changed?}
+    B -- "Yes (new reference or value)" --> C[Child re-renders]
+    B -- "No (same reference)" --> D[Child skips render]
+    C --> E[New VDOM diffed against old]
+    D --> F[Previous render output reused]
+    style D fill:#22c55e,color:#fff
+    style F fill:#22c55e,color:#fff
+    style C fill:#f97316,color:#fff
+`} />
+
+---
+
+## Interactive Example — See Re-Renders Live
+
+Render badges count every time a component renders. Toggle memoization and watch the difference:
+
+<LiveEditor code={`import { useState, useMemo, useCallback, memo, useRef } from 'react'
+
+// Tracks how many times this component rendered
+function RenderBadge({ name, color = '#6366f1' }: { name: string; color?: string }) {
+  const count = useRef(0)
+  count.current++
+  return (
+    <span style={{ fontSize: 11, background: color, color: 'white', padding: '2px 8px', borderRadius: 999, fontWeight: 700 }}>
+      {name}: {count.current}×
+    </span>
+  )
+}
+
+// A "slow" child component
+function ExpensiveList({ items, onItemClick }: { items: string[]; onItemClick: (item: string) => void }) {
+  return (
+    <div style={{ padding: '12px 14px', border: '1px solid #e5e7eb', borderRadius: 10 }}>
+      <RenderBadge name="ExpensiveList" color="#ef4444" />
+      <ul style={{ margin: '8px 0 0', padding: '0 0 0 16px' }}>
+        {items.map(item => (
+          <li key={item} onClick={() => onItemClick(item)} style={{ cursor: 'pointer', fontSize: 14, padding: '2px 0', color: '#374151' }}>{item}</li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+const MemoExpensiveList = memo(ExpensiveList)
+
+export default function App() {
+  const [searchTerm, setSearchTerm] = useState('')
+  const [useMemoPrimitives, setUseMemoPrimitives] = useState(true)
+  const [selected, setSelected] = useState<string | null>(null)
+
+  const allItems = ['useState', 'useEffect', 'useRef', 'useMemo', 'useCallback', 'useContext', 'useReducer']
+
+  // With/without useMemo — controls whether filtered is a new array every render
+  const filteredItems = useMemoPrimitives
+    ? useMemo(() => allItems.filter(i => i.toLowerCase().includes(searchTerm.toLowerCase())), [searchTerm])
+    : allItems.filter(i => i.toLowerCase().includes(searchTerm.toLowerCase()))
+
+  // With/without useCallback — controls whether handler is a new function every render
+  const handleItemClick = useMemoPrimitives
+    ? useCallback((item: string) => setSelected(item), [])
+    : (item: string) => setSelected(item)
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: 20, maxWidth: 400 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+        <RenderBadge name="Parent" color="#22c55e" />
+        <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <input type="checkbox" checked={useMemoPrimitives} onChange={e => setUseMemoPrimitives(e.target.checked)} />
+          useMemo + useCallback + React.memo
+        </label>
+      </div>
+
+      <input
+        value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
+        placeholder="Filter hooks…"
+        style={{ width: '100%', padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 14, marginBottom: 10, boxSizing: 'border-box' }}
+      />
+
+      {useMemoPrimitives
+        ? <MemoExpensiveList items={filteredItems} onItemClick={handleItemClick} />
+        : <ExpensiveList     items={filteredItems} onItemClick={handleItemClick} />
+      }
+
+      {selected && <p style={{ marginTop: 10, fontSize: 14 }}>Selected: <strong>{selected}</strong></p>}
+
+      <p style={{ fontSize: 12, color: '#9ca3af', marginTop: 8 }}>
+        Type in the search box (parent re-renders). With memoization OFF, ExpensiveList re-renders every keystroke even if the filtered list hasn't changed.
+      </p>
+    </div>
+  )
+}`} />
+
+---
+
+## React.memo — Component Memoization
+
+`React.memo` is a higher-order component that wraps a function component. Before rendering the child, React shallowly compares every prop. If all props are referentially equal to the previous render, the child's render function is skipped entirely.
+
+```tsx
+import { memo } from 'react'
+
+interface ProductCardProps {
+  id: string
+  name: string
+  price: number
+  onAddToCart: (id: string) => void
+}
+
+// Without memo: re-renders whenever parent renders
+// With memo: re-renders only when props actually change
+const ProductCard = memo(function ProductCard({
+  id,
+  name,
+  price,
+  onAddToCart,
+}: ProductCardProps) {
+  console.log(`Rendering ProductCard ${id}`)
+
+  return (
+    <article className="product-card">
+      <h3>{name}</h3>
+      <p>${price.toFixed(2)}</p>
+      <button onClick={() => onAddToCart(id)}>Add to Cart</button>
+    </article>
+  )
+})
+
+export default ProductCard
+```
+
+### Custom Comparison Function
+
+`React.memo` accepts an optional second argument — a comparison function with signature `(prevProps, nextProps) => boolean`. Return `true` to skip the render, `false` to allow it.
+
+```tsx
+const ProductCard = memo(
+  function ProductCard({ id, name, price, onAddToCart }: ProductCardProps) {
+    return (/* ... */)
+  },
+  (prev, next) => {
+    // Only re-render if price or name changed — ignore onAddToCart changes
+    return prev.price === next.price && prev.name === next.name
+  }
+)
+```
+
+<Callout type="danger" title="Custom comparators hide bugs">
+Custom comparison functions that ignore certain props (like `onAddToCart` above) can silently break behavior when the ignored prop changes. Prefer fixing the prop stability with `useCallback` instead of papering over it with a custom comparator.
+</Callout>
+
+---
+
+## The Reference Equality Problem
+
+This is the single most important concept for understanding why memoization often fails in practice.
+
+JavaScript uses **reference equality** for objects and arrays. Two objects with identical content are not equal unless they are the same object in memory:
+
+```ts
+// Primitive equality — same value = same reference
+42 === 42        // true
+'hello' === 'hello'  // true
+
+// Object equality — same shape ≠ same reference
+{ a: 1 } === { a: 1 }   // false ← different objects in memory
+[1, 2, 3] === [1, 2, 3] // false ← different arrays in memory
+```
+
+This breaks `React.memo` in a subtle way:
+
+```tsx
+function ProductList() {
+  const [filter, setFilter] = useState('')
+
+  // ❌ New object created on EVERY render — memo is useless
+  const style = { color: 'red', fontSize: 14 }
+
+  // ❌ New function created on EVERY render — memo is useless
+  const handleAddToCart = (id: string) => {
+    console.log('Adding', id)
+  }
+
+  return (
+    <ProductCard
+      id="abc"
+      name="Widget"
+      price={9.99}
+      style={style}          // new reference every render
+      onAddToCart={handleAddToCart} // new reference every render
+    />
+  )
+}
+```
+
+Even though `ProductCard` is wrapped in `React.memo`, it re-renders on every parent render because `style` and `handleAddToCart` are new references each time.
+
+---
+
+## useMemo — Caching Computed Values
+
+`useMemo` memoizes the **result** of a computation. It recalculates only when its dependency array changes.
+
+```tsx
+import { useMemo } from 'react'
+
+function ProductList({ products, searchQuery, sortField }: Props) {
+  // ✅ Only recomputes when products, searchQuery, or sortField changes
+  const filteredAndSorted = useMemo(() => {
+    console.log('Recomputing filtered list...')
+    return products
+      .filter(p =>
+        p.name.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+      .sort((a, b) => {
+        if (sortField === 'price') return a.price - b.price
+        return a.name.localeCompare(b.name)
+      })
+  }, [products, searchQuery, sortField])
+
+  return (
+    <ul>
+      {filteredAndSorted.map(p => (
+        <ProductCard key={p.id} {...p} />
+      ))}
+    </ul>
+  )
+}
+```
+
+### When useMemo Is Worth It
+
+`useMemo` makes sense when:
+
+1. The computation is measurably slow (verify with `performance.mark`)
+2. The result is passed as a prop to a `React.memo` component (stabilizes the reference)
+3. The result is used as a dependency in another `useMemo` or `useEffect`
+
+```tsx
+// Good use case: expensive computation
+const priceHistogram = useMemo(() => {
+  return computeHistogram(transactions) // O(n log n), n = 50,000
+}, [transactions])
+
+// Bad use case: trivial operation with unnecessary complexity
+const doubled = useMemo(() => value * 2, [value]) // Just write: value * 2
+```
+
+---
+
+## useCallback — Caching Function References
+
+`useCallback` is `useMemo` for functions. It returns the same function reference across renders as long as dependencies haven't changed.
+
+```tsx
+import { useCallback, useState } from 'react'
+
+function ShoppingCart({ productIds }: { productIds: string[] }) {
+  const [cartItems, setCartItems] = useState<string[]>([])
+
+  // ❌ New function every render — breaks React.memo on children
+  const handleAdd = (id: string) => {
+    setCartItems(prev => [...prev, id])
+  }
+
+  // ✅ Same function reference until dependencies change
+  const handleAdd = useCallback((id: string) => {
+    setCartItems(prev => [...prev, id])
+  }, []) // No deps — setCartItems is stable
+
+  // ✅ When you need a value from outside
+  const handleRemove = useCallback((id: string) => {
+    setCartItems(prev => prev.filter(item => item !== id))
+  }, []) // setCartItems from useState is always stable
+
+  return (
+    <>
+      {productIds.map(id => (
+        <ProductCard key={id} id={id} onAddToCart={handleAdd} />
+      ))}
+    </>
+  )
+}
+```
+
+### useCallback vs useMemo Equivalence
+
+They are fundamentally the same hook — `useCallback(fn, deps)` is sugar for `useMemo(() => fn, deps)`:
+
+```tsx
+// These are equivalent:
+const stableCallback = useCallback((x: number) => x * 2, [])
+const stableCallback = useMemo(() => (x: number) => x * 2, [])
+```
+
+---
+
+## Combining All Three Correctly
+
+The pattern that actually works: parent uses `useMemo` for object/array props and `useCallback` for function props, child is wrapped in `React.memo`.
+
+```tsx
+// types.ts
+interface Column<T> {
+  key: keyof T
+  label: string
+  render?: (value: T[keyof T], row: T) => React.ReactNode
+}
+
+interface DataTableProps<T> {
+  rows: T[]
+  columns: Column<T>[]
+  onRowClick: (row: T) => void
+  selectedIds: Set<string>
+}
+
+// DataTable.tsx — the memoized child
+const DataTable = memo(function DataTable<T extends { id: string }>({
+  rows,
+  columns,
+  onRowClick,
+  selectedIds,
+}: DataTableProps<T>) {
+  return (
+    <table>
+      <thead>
+        <tr>
+          {columns.map(col => (
+            <th key={String(col.key)}>{col.label}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map(row => (
+          <tr
+            key={row.id}
+            onClick={() => onRowClick(row)}
+            className={selectedIds.has(row.id) ? 'selected' : ''}
+          >
+            {columns.map(col => (
+              <td key={String(col.key)}>
+                {col.render
+                  ? col.render(row[col.key], row)
+                  : String(row[col.key])}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}) as <T extends { id: string }>(props: DataTableProps<T>) => React.ReactElement
+
+// ParentPage.tsx — stabilizes all props for DataTable
+function InventoryPage() {
+  const { data: products } = useProducts()
+  const [search, setSearch] = useState('')
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+
+  // ✅ useMemo: stable array reference for columns (defined outside render ideally)
+  const columns = useMemo<Column<Product>[]>(
+    () => [
+      { key: 'name', label: 'Product Name' },
+      { key: 'sku', label: 'SKU' },
+      {
+        key: 'price',
+        label: 'Price',
+        render: (v) => `$${Number(v).toFixed(2)}`,
+      },
+      {
+        key: 'stock',
+        label: 'Stock',
+        render: (v) => (
+          <span className={Number(v) < 10 ? 'low-stock' : ''}>
+            {String(v)}
+          </span>
+        ),
+      },
+    ],
+    [] // Defined once — no external deps
+  )
+
+  // ✅ useMemo: filtered rows, stable reference
+  const filteredProducts = useMemo(
+    () =>
+      products?.filter(p =>
+        p.name.toLowerCase().includes(search.toLowerCase())
+      ) ?? [],
+    [products, search]
+  )
+
+  // ✅ useMemo: selectedIds as Set — new Set() on every render would break memo
+  const selectedSet = useMemo(() => selectedIds, [selectedIds])
+
+  // ✅ useCallback: stable function reference
+  const handleRowClick = useCallback((product: Product) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      next.has(product.id) ? next.delete(product.id) : next.add(product.id)
+      return next
+    })
+  }, [])
+
+  return (
+    <div>
+      <input
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        placeholder="Search products..."
+      />
+      <DataTable
+        rows={filteredProducts}   // stable via useMemo
+        columns={columns}         // stable via useMemo
+        onRowClick={handleRowClick} // stable via useCallback
+        selectedIds={selectedSet} // stable reference
+      />
+    </div>
+  )
+}
+```
+
+<Callout type="tip" title="Define static data outside the component">
+If a value (like `columns` above) has no external dependencies, define it outside the component entirely — no `useMemo` needed, and it is created exactly once.
+
+```tsx
+// Best: outside the component, zero cost
+const COLUMNS: Column<Product>[] = [
+  { key: 'name', label: 'Product Name' },
+  // ...
+]
+
+function InventoryPage() {
+  // COLUMNS is always the same reference
+  return <DataTable columns={COLUMNS} ... />
+}
+```
+</Callout>
+
+---
+
+## The Cost of Over-Memoization
+
+Memoization is not free. Each `useMemo`/`useCallback` call:
+
+1. **Allocates memory** for the cached value and dependency array
+2. **Runs a comparison loop** over the dependency array on every render
+3. **Increases cognitive load** — readers must understand why the memo exists
+
+```tsx
+// ❌ Anti-pattern: memoizing everything reflexively
+function UserProfile({ userId }: { userId: string }) {
+  // useMemo on a trivial string concat — the comparison is slower than the work
+  const displayName = useMemo(
+    () => `User #${userId}`,
+    [userId]
+  )
+
+  // useCallback with no child components to benefit
+  const handleClick = useCallback(() => {
+    console.log(userId)
+  }, [userId])
+
+  // useMemo wrapping a value that's already stable
+  const config = useMemo(() => ({ theme: 'dark' }), [])
+  // ↑ Better: const config = { theme: 'dark' } defined outside
+
+  return <div onClick={handleClick}>{displayName}</div>
+}
+```
+
+<ComparisonTable
+  columns={["Approach", "Memory", "CPU per render", "Benefit"]}
+  rows={[
+    ["No memoization", "Baseline", "Render + compute", "Simplest code"],
+    ["useMemo (justified)", "Cache + dep array", "Dep comparison only", "Skips expensive work"],
+    ["useMemo (unjustified)", "Cache + dep array", "Dep comparison + same fast work", "None — slower overall"],
+    ["useCallback (justified)", "Cache + dep array", "Dep comparison only", "Prevents child re-renders"],
+    ["useCallback (unjustified)", "Cache + dep array", "Dep comparison + same alloc", "None — adds complexity"],
+    ["React.memo (justified)", "Previous render tree", "Prop shallow comparison", "Skips child sub-tree render"],
+    ["React.memo (unjustified)", "Previous render tree", "Prop shallow comparison + render anyway", "None — always re-renders"],
+  ]}
+/>
+
+---
+
+## React DevTools Profiler
+
+Before memoizing anything, open React DevTools Profiler to find the actual bottleneck.
+
+### Step-by-Step Profiling
+
+1. Install React DevTools browser extension
+2. Open DevTools → "Profiler" tab
+3. Click the record button (circle)
+4. Interact with the slow part of your UI
+5. Stop recording
+6. Examine the flame chart
+
+```
+Flame chart interpretation:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+App (0.3ms)                          ← fast, ignore
+├── Sidebar (0.1ms)                  ← fast, ignore
+└── InventoryPage (47ms) ← HOT      ← investigate
+    ├── SearchInput (0.2ms)          ← fast, ignore
+    └── DataTable (46ms)   ← HOT    ← memoize this
+        └── 5000× ProductRow (9ms avg) ← root cause
+```
+
+### "Why did this render?" Panel
+
+React DevTools Profiler shows exactly why a component re-rendered:
+
+- **Props changed** — shows which prop and old vs new value
+- **State changed** — which state slice
+- **Context changed** — which context
+- **Parent re-rendered** — component has no bailout (no `React.memo`)
+- **Hooks changed** — which hook index
+
+<Callout type="info" title="Enable highlight updates">
+In React DevTools Settings → Profiler, enable "Highlight updates when components render." Every re-rendering component flashes with a colored border — blue for infrequent, yellow for frequent, red for very frequent. This gives you an instant visual map of wasted renders without recording a profile.
+</Callout>
+
+---
+
+## Practical Example: Large Filterable Table
+
+### Before Optimization
+
+```tsx
+// BEFORE — Every keystroke re-renders all 500 rows
+function EmployeeDirectory() {
+  const [search, setSearch] = useState('')
+  const [dept, setDept] = useState('all')
+  const employees = useEmployees() // 500 records
+
+  // New array reference every render
+  const filtered = employees.filter(e =>
+    e.name.toLowerCase().includes(search.toLowerCase()) &&
+    (dept === 'all' || e.department === dept)
+  )
+
+  // New function every render
+  const handleSelect = (id: string) => {
+    console.log('Selected', id)
+  }
+
+  return (
+    <div>
+      <input value={search} onChange={e => setSearch(e.target.value)} />
+      <select value={dept} onChange={e => setDept(e.target.value)}>
+        {/* options */}
+      </select>
+      {filtered.map(emp => (
+        // Not memoized, receives new handleSelect every render
+        <EmployeeRow key={emp.id} employee={emp} onSelect={handleSelect} />
+      ))}
+    </div>
+  )
+}
+```
+
+**Profile result:** 500 × `EmployeeRow` re-renders on every keystroke. Total: ~120ms per keypress — noticeably janky.
+
+### After Optimization
+
+```tsx
+// AFTER — Only changed rows re-render
+const EmployeeRow = memo(function EmployeeRow({
+  employee,
+  onSelect,
+}: {
+  employee: Employee
+  onSelect: (id: string) => void
+}) {
+  return (
+    <div className="employee-row" onClick={() => onSelect(employee.id)}>
+      <img src={employee.avatar} alt={employee.name} />
+      <span>{employee.name}</span>
+      <span>{employee.department}</span>
+      <span>{employee.role}</span>
+    </div>
+  )
+})
+
+function EmployeeDirectory() {
+  const [search, setSearch] = useState('')
+  const [dept, setDept] = useState('all')
+  const employees = useEmployees()
+
+  // Stable filtered array — only recomputes when inputs change
+  const filtered = useMemo(
+    () =>
+      employees.filter(
+        e =>
+          e.name.toLowerCase().includes(search.toLowerCase()) &&
+          (dept === 'all' || e.department === dept)
+      ),
+    [employees, search, dept]
+  )
+
+  // Stable function reference — child memo can now bail out
+  const handleSelect = useCallback((id: string) => {
+    console.log('Selected', id)
+  }, [])
+
+  return (
+    <div>
+      <input value={search} onChange={e => setSearch(e.target.value)} />
+      <select value={dept} onChange={e => setDept(e.target.value)}>
+        {/* options */}
+      </select>
+      {filtered.map(emp => (
+        <EmployeeRow key={emp.id} employee={emp} onSelect={handleSelect} />
+      ))}
+    </div>
+  )
+}
+```
+
+**Profile result after:** Only the rows whose data actually changed re-render. On a typical search keystroke, 0–3 rows re-render. Total: ~2ms per keypress.
+
+---
+
+## startTransition as an Alternative
+
+Sometimes memoization is the wrong tool. If a state update triggers a slow render that you cannot avoid (e.g., rendering many new items), `startTransition` keeps the UI responsive by marking the update as non-urgent.
+
+```tsx
+import { useState, startTransition } from 'react'
+
+function SearchPage() {
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<Result[]>([])
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value
+
+    // ✅ Input update is urgent — happens synchronously
+    setQuery(value)
+
+    // ✅ Results update is non-urgent — React may interrupt it
+    startTransition(() => {
+      setResults(searchProducts(value)) // expensive but deferrable
+    })
+  }
+
+  return (
+    <>
+      <input value={query} onChange={handleChange} />
+      {/* Results render is deferred — input stays responsive */}
+      <ResultsList results={results} />
+    </>
+  )
+}
+```
+
+<ComparisonTable
+  columns={["Technique", "Problem it solves", "Mechanism", "Best for"]}
+  rows={[
+    ["React.memo", "Child re-renders when parent re-renders", "Shallow prop comparison", "Expensive child components with stable props"],
+    ["useMemo", "Expensive computation runs every render", "Cache computed value", "Heavy filtering/sorting, stable object/array refs"],
+    ["useCallback", "New function reference breaks memo", "Cache function reference", "Event handlers passed to memoized children"],
+    ["startTransition", "Render blocks user interaction", "Deferred state update", "Search results, tab switches, large list updates"],
+    ["Virtualization", "Too many DOM nodes", "Render only visible items", "Lists > 100 items"],
+    ["Code splitting", "Large initial bundle", "Dynamic import", "Route-level and heavy component lazy loading"],
+  ]}
+/>
+
+---
+
+## Common Mistakes and Fixes
+
+### Mistake 1: Object in Dependency Array
+
+```tsx
+// ❌ options is a new object every render → infinite effect loop
+function Chart({ data, options }: Props) {
+  useEffect(() => {
+    drawChart(data, options)
+  }, [data, options]) // options = {} is always new
+}
+
+// ✅ Destructure the primitive values instead
+function Chart({ data, options }: Props) {
+  const { color, showLegend } = options
+  useEffect(() => {
+    drawChart(data, { color, showLegend })
+  }, [data, color, showLegend]) // primitives — stable
+}
+```
+
+### Mistake 2: Missing Dependencies in useCallback
+
+```tsx
+// ❌ Stale closure — userId is captured from first render
+const fetchUser = useCallback(() => {
+  api.getUser(userId) // userId might be stale
+}, []) // Missing dependency!
+
+// ✅ Include all dependencies
+const fetchUser = useCallback(() => {
+  api.getUser(userId)
+}, [userId])
+```
+
+### Mistake 3: Wrapping Everything in React.memo
+
+```tsx
+// ❌ These components re-render so rarely that memo adds no value
+// and adds visual noise + memory overhead
+const PageTitle = memo(({ title }: { title: string }) => <h1>{title}</h1>)
+const Divider = memo(() => <hr />)
+const Badge = memo(({ count }: { count: number }) => <span>{count}</span>)
+
+// ✅ Only memo components that:
+// - Render often due to parent re-renders
+// - Have expensive render logic
+// - Receive stable (or stabilized) props
+```
+
+---
+
+<InterviewQA
+  questions={[
+    {
+      question: "What is the difference between useMemo and useCallback, and when would you use each?",
+      answer: "Both hooks cache a value across renders and only recompute when dependencies change. The difference is what they cache: useMemo caches the *result* of calling a function — use it for expensive computations (filtering, sorting, transformations) and for stabilizing object/array references passed as props. useCallback caches the *function itself* — use it when you need a stable function reference to pass as a prop to a React.memo component or as a dependency in another hook. Mechanically, useCallback(fn, deps) is exactly equivalent to useMemo(() => fn, deps).",
+      level: "mid"
+    },
+    {
+      question: "You wrap a component in React.memo but it still re-renders on every parent render. What are the likely causes and how do you diagnose them?",
+      answer: "The most common cause is unstable prop references. React.memo uses shallow equality — if any prop is an object, array, or function created inline in the parent, it gets a new reference every render, so memo always bails out. Diagnose using the React DevTools Profiler: record a session, click the component, and check the 'Why did this render?' panel — it shows exactly which prop changed and the old vs. new value. Fix by: (1) moving static objects/arrays outside the component, (2) wrapping computed objects with useMemo, (3) wrapping event handlers with useCallback. A secondary cause is that the component uses a Context that changes frequently — memo does not prevent context-driven re-renders.",
+      level: "senior"
+    },
+    {
+      question: "Explain the cost of memoization and describe a scenario where removing useMemo actually improves performance.",
+      answer: "Every useMemo call has three costs: (1) memory to store the cached value and dependency array, (2) a linear scan over the dependency array to compare values on every render, and (3) cognitive overhead for maintainers. If the memoized computation is fast (e.g., value * 2), the dependency comparison cost can exceed the computation cost — net negative. A concrete scenario: a component memoizes a simple string interpolation with five dependencies. On each render, React compares all five deps with Object.is. The string interpolation would be faster without the overhead. Removing the useMemo makes each render marginally faster and the code easier to read. Always verify with profiling: if the ProfilerAPI shows the computation in the microseconds range, the memo is not justified.",
+      level: "senior"
+    },
+    {
+      question: "How does startTransition differ from memoization as a performance strategy, and when should you prefer it?",
+      answer: "Memoization prevents work from happening at all (by skipping renders). startTransition does not prevent work — it prioritizes work, telling React that a state update is non-urgent and can be interrupted if a higher-priority update arrives (e.g., a user keystroke). Prefer startTransition when: (1) a state update must trigger a genuinely large render that cannot be reduced (e.g., rendering 1,000 new search results), (2) you want the UI to remain responsive during the render (input stays live), and (3) the user does not need the result instantly. In contrast, memoization is better when you can skip the work entirely. The two are complementary: use memoization to reduce how much renders cost, and startTransition to ensure costly-but-unavoidable renders do not block user interaction.",
+      level: "senior"
+    }
+  ]}
+/>

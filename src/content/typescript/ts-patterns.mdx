@@ -1,0 +1,171 @@
+---
+title: Advanced TypeScript Patterns
+description: Discriminated unions, conditional types, template literals, and utility types for enterprise-grade React TypeScript code.
+category: TypeScript
+order: 3
+slug: typescript/ts-patterns
+difficulty: advanced
+estimatedTime: 15
+tags: [typescript, discriminated union, conditional types, utility types, generics, template literals]
+lastUpdated: 2024-01-15
+---
+
+# Advanced TypeScript Patterns
+
+These patterns appear in large React codebases and in senior-level interviews. They make impossible states unrepresentable and eliminate runtime errors through compile-time guarantees.
+
+## Discriminated Unions
+
+Model state that can't be invalid — TypeScript narrows the type based on the discriminant field:
+
+```tsx
+// Instead of: { data?: Data; loading: boolean; error?: Error }
+// (which allows impossible states: loading=true AND data=defined)
+
+type AsyncState<T> =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'success'; data: T }
+  | { status: 'error';   error: Error }
+
+function useAsync<T>(fn: () => Promise<T>) {
+  const [state, setState] = useState<AsyncState<T>>({ status: 'idle' })
+
+  const run = async () => {
+    setState({ status: 'loading' })
+    try {
+      const data = await fn()
+      setState({ status: 'success', data })
+    } catch (error) {
+      setState({ status: 'error', error: error as Error })
+    }
+  }
+
+  return { state, run }
+}
+
+// TypeScript narrows automatically in each branch
+function UserCard({ state }: { state: AsyncState<User> }) {
+  if (state.status === 'loading') return <Spinner />
+  if (state.status === 'error')   return <p>{state.error.message}</p>
+  if (state.status === 'success') return <div>{state.data.name}</div>
+  return null
+}
+```
+
+## Conditional Types
+
+Types that depend on other types:
+
+```tsx
+// If T is an array, unwrap it; otherwise keep T
+type Unwrap<T> = T extends (infer U)[] ? U : T
+
+type A = Unwrap<string[]>   // string
+type B = Unwrap<string>     // string
+
+// NonNullable (built-in but good to understand)
+type NonNullable<T> = T extends null | undefined ? never : T
+
+// Extract keys with a specific value type
+type KeysOfType<T, V> = {
+  [K in keyof T]: T[K] extends V ? K : never
+}[keyof T]
+
+interface User {
+  id:      number
+  name:    string
+  email:   string
+  age:     number
+  isAdmin: boolean
+}
+
+type StringKeys  = KeysOfType<User, string>  // 'name' | 'email'
+type NumberKeys  = KeysOfType<User, number>  // 'id' | 'age'
+```
+
+## Template Literal Types
+
+```tsx
+type EventName<T extends string> = `on${Capitalize<T>}`
+
+type ClickEvent   = EventName<'click'>    // 'onClick'
+type ChangeEvent  = EventName<'change'>   // 'onChange'
+
+// Build event handler map from union
+type Events = 'click' | 'focus' | 'blur' | 'change'
+type EventHandlers = {
+  [E in Events as `on${Capitalize<E>}`]?: (e: Event) => void
+}
+// { onClick?: ...; onFocus?: ...; onBlur?: ...; onChange?: ... }
+
+// CSS property autocomplete (simplified)
+type BreakpointPrefix = 'sm' | 'md' | 'lg' | 'xl'
+type TailwindFlex = `flex-${1 | 2 | 3 | 'none' | 'auto'}`
+```
+
+## Key Utility Types
+
+```tsx
+// Pick — keep only selected keys
+type UserPreview = Pick<User, 'id' | 'name' | 'avatar'>
+
+// Omit — remove selected keys
+type UserWithoutPassword = Omit<User, 'password' | 'salt'>
+
+// Partial — make all keys optional (useful for update payloads)
+type UserUpdate = Partial<Pick<User, 'name' | 'email' | 'bio'>>
+
+// Required — make all keys required
+type RequiredConfig = Required<Config>
+
+// Record — map keys to values
+type RolePermissions = Record<'admin' | 'editor' | 'viewer', string[]>
+
+// ReturnType and Parameters — extract from functions
+const fetchUser = async (id: string): Promise<User> => { ... }
+type FetchReturn = Awaited<ReturnType<typeof fetchUser>>  // User
+type FetchParams = Parameters<typeof fetchUser>           // [string]
+```
+
+## Polymorphic Component Pattern
+
+A component that renders as different HTML elements while preserving type safety:
+
+```tsx
+type PolymorphicProps<E extends React.ElementType> = {
+  as?: E
+} & React.ComponentPropsWithoutRef<E>
+
+function Text<E extends React.ElementType = 'span'>({
+  as,
+  ...props
+}: PolymorphicProps<E>) {
+  const Component = as ?? 'span'
+  return <Component {...props} />
+}
+
+// TypeScript enforces correct attributes per element:
+<Text as="a" href="/home">Home</Text>         // href allowed for <a>
+<Text as="button" onClick={fn}>Click</Text>   // onClick allowed for <button>
+<Text as="h1">Heading</Text>                  // renders as h1
+// <Text as="a" onClick={fn}>bad</Text>       // onClick is not standard on <a> — warning
+```
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- Discriminated unions make impossible states unrepresentable — always use a `status` discriminant for async state
+- Conditional types (`T extends X ? A : B`) let you compute types from other types
+- Template literal types build string union types programmatically
+- Utility types (`Pick`, `Omit`, `Partial`, `Record`, `ReturnType`) handle common type transformations
+- Polymorphic components (`as` prop) provide type-safe element swapping
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "What is a discriminated union and when should you use it in React?",
+    answer: "A discriminated union is a union type where each member has a common field (the discriminant) with a unique literal type. TypeScript uses the discriminant to narrow the type in conditional branches. In React, use it for async state (idle/loading/success/error), form state (pristine/dirty/submitting/submitted), and any multi-state UI. The benefit: you can't accidentally access data in the loading state or error.message in the success state — the compiler prevents it. It's a direct replacement for the error-prone boolean flag pattern (isLoading: boolean, hasError: boolean, data: T | null).",
+    level: "senior"
+  }
+]} />

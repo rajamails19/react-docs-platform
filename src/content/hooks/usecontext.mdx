@@ -1,0 +1,266 @@
+---
+title: useContext Hook
+description: Share state across the component tree without prop drilling using React's Context API.
+category: Hooks
+order: 6
+slug: hooks/usecontext
+difficulty: intermediate
+estimatedTime: 12
+tags: [usecontext, context, prop drilling, global state, provider]
+lastUpdated: 2024-01-15
+---
+
+# useContext
+
+`useContext` lets you read and subscribe to a Context value without prop drilling — passing props through every intermediate component.
+
+```tsx
+const value = useContext(MyContext)
+```
+
+## The Prop Drilling Problem
+
+```tsx
+// ❌ Prop drilling — theme passed through 3 layers that don't use it
+function App() {
+  const [theme, setTheme] = useState('dark')
+  return <Page theme={theme} setTheme={setTheme} />
+}
+function Page({ theme, setTheme }: { theme: string; setTheme: (t: string) => void }) {
+  return <Sidebar theme={theme} setTheme={setTheme} />  // doesn't use theme itself
+}
+function Sidebar({ theme, setTheme }: { theme: string; setTheme: (t: string) => void }) {
+  return <ThemeToggle theme={theme} setTheme={setTheme} />  // doesn't use theme itself
+}
+function ThemeToggle({ theme, setTheme }: { theme: string; setTheme: (t: string) => void }) {
+  return <button onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}>{theme}</button>
+}
+```
+
+## The Fix: Context
+
+```tsx
+// 1. Create the context
+interface ThemeContextValue {
+  theme:      'light' | 'dark'
+  setTheme:   (theme: 'light' | 'dark') => void
+}
+
+const ThemeContext = createContext<ThemeContextValue | null>(null)
+
+// 2. Create a type-safe hook
+function useTheme() {
+  const ctx = useContext(ThemeContext)
+  if (!ctx) throw new Error('useTheme must be inside ThemeProvider')
+  return ctx
+}
+
+// 3. Create the Provider
+function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const [theme, setTheme] = useState<'light' | 'dark'>('dark')
+  return (
+    <ThemeContext.Provider value={{ theme, setTheme }}>
+      {children}
+    </ThemeContext.Provider>
+  )
+}
+
+// 4. Components consume directly — no passing through intermediaries
+function ThemeToggle() {
+  const { theme, setTheme } = useTheme()   // ← straight to the consumer
+  return (
+    <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
+      Current: {theme}
+    </button>
+  )
+}
+
+// App wraps everything in Provider
+function App() {
+  return (
+    <ThemeProvider>
+      <Page />  {/* doesn't need theme prop anymore */}
+    </ThemeProvider>
+  )
+}
+```
+
+## When to Use Context
+
+<ComparisonTable
+  columns={[
+    { key: 'context', label: 'Use Context', highlight: true },
+    { key: 'props',   label: 'Use Props' },
+  ]}
+  rows={[
+    { feature: 'Prop drilling depth', context: '3+ levels',          props: '1-2 levels' },
+    { feature: 'State scope',         context: 'Subtree or global',  props: 'Parent-child' },
+    { feature: 'Examples',            context: 'Theme, Auth, Locale',props: 'Button label, onClick' },
+    { feature: 'Performance concern', context: 'All consumers re-render on change', props: 'Only receiving component' },
+  ]}
+/>
+
+## Context + useReducer (Mini Redux)
+
+```tsx
+// Combine Context + useReducer for global state without Redux
+type Action = { type: 'LOGIN'; user: User } | { type: 'LOGOUT' }
+interface State { user: User | null; loading: boolean }
+
+const AuthContext = createContext<{ state: State; dispatch: React.Dispatch<Action> } | null>(null)
+
+function authReducer(state: State, action: Action): State {
+  switch (action.type) {
+    case 'LOGIN':  return { ...state, user: action.user, loading: false }
+    case 'LOGOUT': return { ...state, user: null }
+    default: return state
+  }
+}
+
+function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [state, dispatch] = useReducer(authReducer, { user: null, loading: false })
+  return (
+    <AuthContext.Provider value={{ state, dispatch }}>
+      {children}
+    </AuthContext.Provider>
+  )
+}
+
+function useAuth() {
+  const ctx = useContext(AuthContext)
+  if (!ctx) throw new Error('useAuth must be inside AuthProvider')
+  return ctx
+}
+
+// Usage
+function ProfileButton() {
+  const { state, dispatch } = useAuth()
+  return state.user
+    ? <button onClick={() => dispatch({ type: 'LOGOUT' })}>{state.user.name}</button>
+    : <Link to="/login">Sign in</Link>
+}
+```
+
+## Interactive Example — Theme Context
+
+A `ThemeContext` powers all three cards below. Change the theme in the Provider and watch every consumer update instantly — no props passed through intermediaries:
+
+<LiveEditor code={`import { createContext, useContext, useState } from 'react'
+
+// 1. Create typed context
+interface Theme { bg: string; text: string; border: string; name: string }
+const THEMES: Record<string, Theme> = {
+  indigo: { name: 'Indigo', bg: '#eef2ff', text: '#3730a3', border: '#a5b4fc' },
+  rose:   { name: 'Rose',   bg: '#fff1f2', text: '#9f1239', border: '#fda4af' },
+  emerald:{ name: 'Emerald',bg: '#ecfdf5', text: '#065f46', border: '#6ee7b7' },
+}
+
+const ThemeCtx = createContext<{ theme: Theme; setKey: (k: string) => void } | null>(null)
+const useTheme = () => { const c = useContext(ThemeCtx); if (!c) throw new Error(); return c }
+
+// 2. Provider
+function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const [key, setKey] = useState('indigo')
+  return (
+    <ThemeCtx.Provider value={{ theme: THEMES[key], setKey }}>
+      {children}
+    </ThemeCtx.Provider>
+  )
+}
+
+// 3. Consumers — no theme prop needed
+function Header() {
+  const { theme } = useTheme()
+  return (
+    <div style={{ padding: '10px 16px', background: theme.bg, border: \`1px solid \${theme.border}\`, borderRadius: 8, color: theme.text, fontWeight: 700, fontSize: 15 }}>
+      App Header — {theme.name} theme
+    </div>
+  )
+}
+
+function Sidebar() {
+  const { theme } = useTheme()
+  return (
+    <div style={{ padding: '10px 16px', background: theme.bg, border: \`1px solid \${theme.border}\`, borderRadius: 8, color: theme.text, fontSize: 14 }}>
+      Sidebar (also consuming context)
+    </div>
+  )
+}
+
+function ThemePicker() {
+  const { setKey } = useTheme()
+  return (
+    <div style={{ display: 'flex', gap: 8 }}>
+      {Object.entries(THEMES).map(([k, t]) => (
+        <button key={k} onClick={() => setKey(k)}
+          style={{ padding: '6px 14px', background: t.bg, color: t.text, border: \`2px solid \${t.border}\`, borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+          {t.name}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// Tree: ThemeProvider → App → (Header, Sidebar, ThemePicker)
+// None of these pass theme as a prop — they all consume from context
+export default function App() {
+  return (
+    <ThemeProvider>
+      <div style={{ fontFamily: 'sans-serif', padding: 24, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <Header />
+        <Sidebar />
+        <ThemePicker />
+        <p style={{ margin: 0, fontSize: 12, color: '#9ca3af' }}>
+          No prop drilling — every component reads from ThemeCtx directly
+        </p>
+      </div>
+    </ThemeProvider>
+  )
+}`} />
+
+<Challenge title="Add a NotificationContext">
+Add a second context that tracks an unread message count (start at 0).
+
+- Create `NotifContext` with a `count` value and an `addNotif` action
+- Wrap the app in `NotifProvider`
+- Add a button that calls `addNotif()` and a badge in `Header` that shows the count
+
+Notice: changing the notification count shouldn't re-render the theme-only consumer (`Sidebar`).
+</Challenge>
+
+## Performance: Avoiding Unnecessary Re-renders
+
+Every component that calls `useContext` re-renders when the context value changes. Split contexts for unrelated state:
+
+```tsx
+// ❌ One big context — button re-renders on user name change
+const AppContext = createContext({ user, theme, notifications })
+
+// ✅ Split contexts — components only subscribe to what they need
+const UserContext  = createContext<User | null>(null)
+const ThemeContext = createContext<'light' | 'dark'>('light')
+const NotifContext = createContext<Notification[]>([])
+```
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- `useContext` eliminates prop drilling for values needed across many components
+- Always create a typed consumer hook (`useTheme()`, `useAuth()`) — never call `useContext` directly
+- Context + useReducer is a lightweight Redux alternative for medium complexity state
+- Split large contexts to avoid unnecessary re-renders
+- Context is for **stable or infrequently changing** global data — not for server state
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "What is prop drilling and how does Context fix it?",
+    answer: "Prop drilling is when you pass props through multiple intermediate components that don't use those props — they just forward them to children deeper in the tree. It makes components tightly coupled and changes require updating every layer. Context provides a way to make a value available to any component in a subtree without passing it explicitly through each level. A Provider wraps the tree and any descendant can access the value with useContext.",
+    level: "junior"
+  },
+  {
+    question: "What are the performance implications of useContext?",
+    answer: "All components that useContext re-render whenever the context value changes. This is reference equality — if you provide an object and it's a new object reference each render, all consumers re-render on every parent render. Mitigations: (1) Memoize the context value: useMemo(() => ({ theme, setTheme }), [theme]). (2) Split contexts — separate ThemeContext from UserContext so theme changes don't re-render user-dependent components. (3) For high-frequency updates (mouse position, scroll), Context is not appropriate — use event listeners or a specialized library like Zustand that supports atomic subscriptions.",
+    level: "senior"
+  }
+]} />

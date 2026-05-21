@@ -1,0 +1,518 @@
+---
+title: Class Components
+description: Deep dive into class components — constructor, lifecycle methods, state management, error boundaries, and migration patterns to hooks.
+category: Components
+order: 2
+slug: components/class
+difficulty: intermediate
+estimatedTime: 20
+tags: [class components, lifecycle, state, error boundaries, PureComponent, migration]
+lastUpdated: "2024-01-15"
+---
+
+# Class Components
+
+Before React Hooks (React 16.8, February 2019), **class components** were the only way to use state and lifecycle logic. Understanding them is essential for maintaining legacy codebases, writing error boundaries, and reading older documentation and open-source code.
+
+<Callout type="info">
+New code should prefer functional components with hooks. Class components remain necessary for **error boundaries**, which cannot be implemented as functional components as of React 18.
+</Callout>
+
+## Basic Syntax
+
+A class component extends `React.Component` and must implement a `render()` method that returns JSX.
+
+```tsx
+import React from 'react'
+
+class Greeting extends React.Component {
+  render() {
+    return <h1>Hello, world!</h1>
+  }
+}
+```
+
+### Receiving Props
+
+Props are accessed via `this.props` inside any class method.
+
+```tsx
+interface GreetingProps {
+  name: string
+  role?: string
+}
+
+class Greeting extends React.Component<GreetingProps> {
+  render() {
+    const { name, role = 'guest' } = this.props
+    return (
+      <div>
+        <h1>Hello, {name}!</h1>
+        <p>Role: {role}</p>
+      </div>
+    )
+  }
+}
+```
+
+## Constructor and `super(props)`
+
+The constructor is where you initialize `this.state` and bind event handlers. You **must** call `super(props)` before accessing `this`.
+
+```tsx
+interface CounterProps {
+  initialCount?: number
+}
+
+interface CounterState {
+  count: number
+  step: number
+}
+
+class Counter extends React.Component<CounterProps, CounterState> {
+  constructor(props: CounterProps) {
+    super(props)                      // always first
+    this.state = {
+      count: props.initialCount ?? 0,
+      step: 1,
+    }
+    // bind in constructor — one allocation, not per render
+    this.handleIncrement = this.handleIncrement.bind(this)
+    this.handleDecrement = this.handleDecrement.bind(this)
+  }
+
+  handleIncrement() {
+    this.setState(prev => ({ count: prev.count + prev.step }))
+  }
+
+  handleDecrement() {
+    this.setState(prev => ({ count: prev.count - prev.step }))
+  }
+
+  render() {
+    return (
+      <div>
+        <button onClick={this.handleDecrement}>-</button>
+        <span>{this.state.count}</span>
+        <button onClick={this.handleIncrement}>+</button>
+      </div>
+    )
+  }
+}
+```
+
+<Callout type="warning">
+Forgetting `super(props)` causes `this.props` to be `undefined` inside the constructor. Omitting the `props` argument to `super` (just `super()`) used to work in older React but caused subtle bugs and is now considered a mistake.
+</Callout>
+
+## `this.state` and `this.setState`
+
+State is a plain object stored on `this.state`. Never mutate it directly — always use `this.setState`.
+
+```tsx
+// ❌ Never mutate state directly
+this.state.count = 5
+
+// ✅ Always use setState
+this.setState({ count: 5 })
+```
+
+### Functional Updater Form
+
+When new state depends on the previous state, use the functional form to avoid stale state bugs:
+
+```tsx
+// ❌ May use stale state if batched
+this.setState({ count: this.state.count + 1 })
+
+// ✅ Always receives the latest committed state
+this.setState(prevState => ({
+  count: prevState.count + 1,
+}))
+```
+
+### `setState` is Asynchronous
+
+React may batch multiple `setState` calls. Don't read `this.state` immediately after calling `setState`.
+
+```tsx
+handleClick() {
+  this.setState({ count: this.state.count + 1 })
+  // this.state.count is still the old value here
+  console.log(this.state.count) // stale!
+
+  // Use the setState callback for post-update logic
+  this.setState({ count: this.state.count + 1 }, () => {
+    console.log(this.state.count) // fresh ✅
+  })
+}
+```
+
+### Partial State Updates
+
+`setState` **merges** at the top level — you only need to pass what changed.
+
+```tsx
+interface FormState {
+  name: string
+  email: string
+  age: number
+}
+
+class Form extends React.Component<{}, FormState> {
+  state: FormState = { name: '', email: '', age: 0 }
+
+  setName(name: string) {
+    // email and age are preserved automatically
+    this.setState({ name })
+  }
+}
+```
+
+## Binding Event Handlers
+
+There are two common patterns for binding `this` to class methods.
+
+### Pattern 1: Bind in Constructor (Recommended for performance)
+
+```tsx
+class Button extends React.Component {
+  constructor(props: {}) {
+    super(props)
+    this.handleClick = this.handleClick.bind(this)
+  }
+
+  handleClick() {
+    console.log('clicked', this)
+  }
+
+  render() {
+    return <button onClick={this.handleClick}>Click</button>
+  }
+}
+```
+
+### Pattern 2: Arrow Function Class Fields (Modern syntax)
+
+```tsx
+class Button extends React.Component {
+  // Arrow function captures `this` lexically
+  handleClick = () => {
+    console.log('clicked', this)
+  }
+
+  render() {
+    return <button onClick={this.handleClick}>Click</button>
+  }
+}
+```
+
+<Callout type="tip">
+Arrow function class fields are syntactically cleaner and avoid the constructor boilerplate. However, each instance gets its own copy of the function (instead of sharing via prototype), which matters at very large scales (10,000+ instances). For most apps the difference is negligible.
+</Callout>
+
+### Pattern 3: Inline Arrow (Avoid for performance-sensitive code)
+
+```tsx
+// ❌ Creates a new function on every render
+render() {
+  return <button onClick={() => this.handleClick()}>Click</button>
+}
+```
+
+## Lifecycle Methods
+
+<MermaidDiagram chart={`sequenceDiagram
+  participant M as Mount
+  participant U as Update
+  participant UN as Unmount
+  M->>M: constructor()
+  M->>M: render()
+  M->>M: componentDidMount()
+  U->>U: render() [when props/state change]
+  U->>U: componentDidUpdate(prevProps, prevState)
+  UN->>UN: componentWillUnmount()
+`} />
+
+### `componentDidMount`
+
+Runs once, after the component is inserted into the DOM. Use for data fetching, subscriptions, and DOM measurements.
+
+```tsx
+class UserProfile extends React.Component<{ userId: string }, { user: User | null; loading: boolean }> {
+  state = { user: null, loading: true }
+
+  async componentDidMount() {
+    try {
+      const user = await fetchUser(this.props.userId)
+      this.setState({ user, loading: false })
+    } catch {
+      this.setState({ loading: false })
+    }
+  }
+
+  render() {
+    const { user, loading } = this.state
+    if (loading) return <Spinner />
+    if (!user) return <p>User not found.</p>
+    return <p>{user.name}</p>
+  }
+}
+```
+
+### `componentDidUpdate`
+
+Runs after every update. Always compare prev and current values to avoid infinite loops.
+
+```tsx
+componentDidUpdate(prevProps: UserProfileProps) {
+  if (prevProps.userId !== this.props.userId) {
+    // userId changed — re-fetch
+    this.fetchUser(this.props.userId)
+  }
+}
+```
+
+<Callout type="danger">
+Calling `setState` inside `componentDidUpdate` without a condition guard causes an **infinite update loop**: setState → re-render → componentDidUpdate → setState → ...
+</Callout>
+
+### `componentWillUnmount`
+
+Runs just before the component is removed. Use for cleanup: clear timers, cancel requests, remove event listeners, unsubscribe.
+
+```tsx
+class LiveFeed extends React.Component<{}, { messages: string[] }> {
+  state = { messages: [] }
+  private socket: WebSocket | null = null
+  private timerId: number | null = null
+
+  componentDidMount() {
+    this.socket = new WebSocket('wss://api.example.com/feed')
+    this.socket.onmessage = (e) => {
+      this.setState(prev => ({
+        messages: [...prev.messages, e.data],
+      }))
+    }
+    this.timerId = window.setInterval(this.ping, 30_000)
+  }
+
+  ping = () => {
+    this.socket?.send('ping')
+  }
+
+  componentWillUnmount() {
+    this.socket?.close()
+    if (this.timerId !== null) clearInterval(this.timerId)
+  }
+
+  render() {
+    return (
+      <ul>
+        {this.state.messages.map((m, i) => <li key={i}>{m}</li>)}
+      </ul>
+    )
+  }
+}
+```
+
+## PureComponent
+
+`React.PureComponent` is identical to `React.Component` but implements `shouldComponentUpdate` with a **shallow comparison** of props and state. This prevents unnecessary re-renders when props/state haven't changed.
+
+```tsx
+class MessageItem extends React.PureComponent<{ text: string; author: string }> {
+  render() {
+    console.log('rendered') // only logs when text or author actually changes
+    return <li><strong>{this.props.author}:</strong> {this.props.text}</li>
+  }
+}
+```
+
+<Callout type="warning">
+`PureComponent`'s shallow comparison fails for **new object/array references** with the same contents. If a parent passes `{ style: { color: 'red' } }` as a new object literal on each render, `PureComponent` will still re-render.
+</Callout>
+
+## Error Boundaries
+
+Error boundaries are the primary reason to still write class components in modern React. They catch JavaScript errors during rendering, in lifecycle methods, and in constructors of any child component tree.
+
+```tsx
+interface ErrorBoundaryState {
+  hasError: boolean
+  error: Error | null
+}
+
+class ErrorBoundary extends React.Component<
+  React.PropsWithChildren<{ fallback: React.ReactNode }>,
+  ErrorBoundaryState
+> {
+  state: ErrorBoundaryState = { hasError: false, error: null }
+
+  // Called during render when a descendant throws
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error }
+  }
+
+  // Called after render for side effects (logging, reporting)
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error('Caught by ErrorBoundary:', error, info.componentStack)
+    // reportToSentry(error, info)
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback
+    }
+    return this.props.children
+  }
+}
+
+// Usage
+function App() {
+  return (
+    <ErrorBoundary fallback={<h2>Something went wrong. Please refresh.</h2>}>
+      <PaymentForm />
+    </ErrorBoundary>
+  )
+}
+```
+
+<Callout type="info">
+`getDerivedStateFromError` is a **static method** — it has no access to `this`. It is called synchronously during the render phase to update state. `componentDidCatch` runs in the commit phase and is where side effects (logging, error reporting) should live.
+</Callout>
+
+## Class vs Functional Components
+
+<ComparisonTable
+  columns={["Aspect", "Class Component", "Functional Component"]}
+  rows={[
+    ["Syntax", "extends React.Component", "Plain function"],
+    ["State", "this.state / this.setState", "useState hook"],
+    ["Lifecycle", "componentDidMount, componentDidUpdate, componentWillUnmount", "useEffect hook"],
+    ["Performance opt", "PureComponent / shouldComponentUpdate", "React.memo + useMemo + useCallback"],
+    ["Context", "static contextType / <Context.Consumer>", "useContext hook"],
+    ["Error boundaries", "getDerivedStateFromError + componentDidCatch ✅", "Not supported ❌"],
+    ["Code reuse", "HOC / render props (verbose)", "Custom hooks (concise)"],
+    ["this binding", "Required for event handlers", "Not needed"],
+    ["Testing", "Enzyme-friendly, more boilerplate", "Easier with Testing Library"],
+    ["Bundle size", "Slightly larger (class overhead)", "Slightly smaller"],
+  ]}
+/>
+
+## When Class Components Are Still Needed
+
+1. **Error Boundaries** — no functional equivalent as of React 18.
+2. **Legacy codebase maintenance** — migrating everything at once isn't always practical.
+3. **Third-party libraries** that expose class-based APIs (e.g., some charting libraries).
+4. **Existing patterns that work** — no need to rewrite if it isn't broken.
+
+## Migration Pattern: Class → Hooks
+
+Here is a side-by-side migration of a data-fetching component.
+
+```tsx
+// ── CLASS VERSION ──────────────────────────────────────────────
+class UserCard extends React.Component<{ id: string }, { user: User | null }> {
+  state = { user: null }
+
+  async componentDidMount() {
+    const user = await getUser(this.props.id)
+    this.setState({ user })
+  }
+
+  async componentDidUpdate(prev: { id: string }) {
+    if (prev.id !== this.props.id) {
+      const user = await getUser(this.props.id)
+      this.setState({ user })
+    }
+  }
+
+  render() {
+    return this.state.user ? <p>{this.state.user.name}</p> : <Spinner />
+  }
+}
+
+// ── FUNCTIONAL VERSION ─────────────────────────────────────────
+function UserCard({ id }: { id: string }) {
+  const [user, setUser] = useState<User | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    getUser(id).then(u => {
+      if (!cancelled) setUser(u)
+    })
+    return () => { cancelled = true }
+  }, [id])
+
+  return user ? <p>{user.name}</p> : <Spinner />
+}
+```
+
+<Callout type="tip">
+The functional version also handles **cancellation** cleanly — if `id` changes before the first fetch completes, the stale result is ignored. Replicating this in a class component requires more boilerplate.
+</Callout>
+
+<LiveEditor code={`import React from 'react'
+
+class TemperatureConverter extends React.Component {
+  constructor(props) {
+    super(props)
+    this.state = { celsius: 0 }
+    this.handleChange = this.handleChange.bind(this)
+  }
+
+  handleChange(e) {
+    this.setState({ celsius: Number(e.target.value) })
+  }
+
+  componentDidUpdate(_, prevState) {
+    if (prevState.celsius !== this.state.celsius) {
+      document.title = \`\${this.state.celsius}°C\`
+    }
+  }
+
+  render() {
+    const { celsius } = this.state
+    const fahrenheit = (celsius * 9) / 5 + 32
+    return (
+      <div style={{ fontFamily: 'sans-serif', padding: 16 }}>
+        <label>
+          Celsius:{' '}
+          <input
+            type="number"
+            value={celsius}
+            onChange={this.handleChange}
+            style={{ marginLeft: 8 }}
+          />
+        </label>
+        <p>= {fahrenheit.toFixed(1)} °F</p>
+      </div>
+    )
+  }
+}
+
+export default TemperatureConverter`} />
+
+<InterviewQA questions={[
+  {
+    question: "Why must you call super(props) before accessing this in a class component constructor?",
+    answer: "In JavaScript, a derived class constructor must call super() before accessing `this`. React's Component base class uses the props argument to set up this.props. If you omit props from super(), this.props will be undefined inside the constructor — even though it works correctly in other methods. React itself sets this.props before render, but the constructor gap causes subtle bugs.",
+    level: "intermediate"
+  },
+  {
+    question: "What is the difference between getDerivedStateFromError and componentDidCatch?",
+    answer: "getDerivedStateFromError is a static method called synchronously during the render phase when a child throws. It returns new state (e.g. { hasError: true }) so React can re-render the fallback UI in the same pass. It must be pure — no side effects. componentDidCatch is called in the commit phase after the DOM has been updated. It receives both the error and an ErrorInfo object with the component stack, making it the right place for side effects like logging to Sentry or an analytics service.",
+    level: "intermediate"
+  },
+  {
+    question: "How does PureComponent differ from Component, and when should you prefer one over the other?",
+    answer: "PureComponent implements shouldComponentUpdate with a shallow comparison of props and state. If none of the compared values have changed (by reference), the render is skipped. This is useful when the component is expensive to render and its props are primitives or stable object references. Use Component when you need custom shouldComponentUpdate logic, when props/state contain nested objects that change deeply, or when rendering is cheap and the comparison overhead outweighs savings.",
+    level: "intermediate"
+  },
+  {
+    question: "Why can't error boundaries be implemented as functional components?",
+    answer: "Error boundaries rely on the class lifecycle methods getDerivedStateFromError and componentDidCatch. There is no hook equivalent for these two methods as of React 18. The React team has acknowledged this gap and indicated a future hook (likely useErrorBoundary) may be introduced, but it does not exist in stable React yet. For now, every error boundary must be a class component — though libraries like react-error-boundary wrap this complexity for you.",
+    level: "advanced"
+  }
+]} />

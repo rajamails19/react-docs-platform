@@ -1,0 +1,593 @@
+---
+title: OAuth 2.0 and Social Login in React
+description: Implement OAuth 2.0 social login (Google, GitHub) in React SPAs using PKCE, Auth0, and NextAuth.js — with role-based access, secure state handling, and provider comparisons.
+category: Authentication
+order: 2
+slug: auth/oauth
+difficulty: advanced
+estimatedTime: 50
+tags: [oauth, oidc, social-login, google, github, auth0, nextauth, pkce, authorization-code, react]
+lastUpdated: "2024-01-15"
+---
+
+# OAuth 2.0 and Social Login in React
+
+OAuth 2.0 lets your app delegate authentication to a trusted provider — Google, GitHub, Apple — without ever handling the user's password. This guide covers the theory, the PKCE flow every SPA must use, and three practical implementation paths.
+
+## OAuth 2.0 vs OpenID Connect
+
+These two protocols are related but distinct:
+
+<ComparisonTable
+  columns={["Aspect", "OAuth 2.0", "OpenID Connect (OIDC)"]}
+  rows={[
+    ["Purpose", "Delegated authorization — grants access to resources", "Authentication — proves who the user is"],
+    ["What you get", "An access token for calling APIs on the user's behalf", "An ID token (JWT) with user identity claims"],
+    ["Scope", "`scope=read:repos` (resource-specific)", "`scope=openid profile email` (identity-specific)"],
+    ["User info", "Not specified — provider-dependent", "Standardized `/userinfo` endpoint and ID token claims"],
+    ["Built on", "Independent protocol", "Layer on top of OAuth 2.0"],
+    ["When to use", "Accessing third-party APIs (GitHub repos, Google Calendar)", "Signing users in to your app"],
+  ]}
+/>
+
+<Callout type="info">
+When you implement "Sign in with Google," you are using OpenID Connect (which is built on OAuth 2.0). The ID token you receive is a JWT containing the user's `sub` (stable unique ID), `email`, `name`, and `picture`. Your app should use the `sub` claim — not the email — as the stable user identifier, because users can change their email addresses.
+</Callout>
+
+## Why the Implicit Flow Is Deprecated
+
+Older tutorials taught the OAuth **Implicit Flow**, where the access token was returned directly in the URL fragment (`#access_token=...`) after the redirect. This is now deprecated for three reasons:
+
+1. **Tokens in the URL** — URL fragments can appear in browser history, server logs, and `Referer` headers.
+2. **No client authentication** — there is no way to verify the token came from the expected authorization server.
+3. **No refresh tokens** — implicit flow cannot issue refresh tokens, forcing frequent re-authentication.
+
+The modern replacement for SPAs is the **Authorization Code Flow with PKCE**.
+
+## PKCE Flow for SPAs
+
+PKCE (Proof Key for Code Exchange, pronounced "pixie") prevents authorization code interception attacks. The SPA generates a cryptographic secret before starting the flow, and the authorization server verifies it when the code is exchanged for tokens.
+
+<MermaidDiagram chart={`
+sequenceDiagram
+  participant U as User
+  participant S as React SPA
+  participant AS as Authorization Server<br/>(Google / GitHub)
+  participant RS as Resource Server<br/>(Your API)
+
+  S->>S: Generate code_verifier (random 43-128 char string)
+  S->>S: code_challenge = BASE64URL(SHA256(code_verifier))
+  S->>S: Generate random state parameter (CSRF protection)
+  S->>S: Store code_verifier + state in sessionStorage
+  U->>S: Click "Sign in with Google"
+  S->>AS: Redirect to /authorize?<br/>client_id=...&redirect_uri=...&<br/>response_type=code&scope=openid+profile+email&<br/>code_challenge=...&code_challenge_method=S256&<br/>state=...
+  U->>AS: Grant consent
+  AS-->>S: Redirect to /callback?code=AUTH_CODE&state=...
+  S->>S: Verify state matches stored value
+  S->>AS: POST /token { code, code_verifier, client_id, redirect_uri }
+  AS->>AS: SHA256(code_verifier) == stored code_challenge?
+  AS-->>S: { access_token, id_token, refresh_token }
+  S->>S: Decode id_token to get user profile
+  S->>S: Store tokens, update auth context
+  S->>RS: GET /api/data (Authorization: Bearer access_token)
+  RS-->>S: Protected data
+`} caption="Authorization Code Flow with PKCE — the correct OAuth flow for React SPAs" />
+
+## Approach 1 — Auth0 (Managed Auth)
+
+Auth0 is the easiest path: managed infrastructure, social provider configuration in a dashboard, built-in user management, and an excellent React SDK.
+
+```bash
+npm install @auth0/auth0-react
+```
+
+Configure Auth0 in your dashboard, then wrap your app:
+
+```typescript
+// src/main.tsx
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
+import { Auth0Provider } from '@auth0/auth0-react';
+import { App } from './App';
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <Auth0Provider
+      domain={import.meta.env.VITE_AUTH0_DOMAIN}
+      clientId={import.meta.env.VITE_AUTH0_CLIENT_ID}
+      authorizationParams={{
+        redirect_uri: window.location.origin,
+        audience: import.meta.env.VITE_AUTH0_AUDIENCE, // your API identifier
+        scope: 'openid profile email',
+      }}
+      cacheLocation="memory" // keep tokens in memory, not localStorage
+      useRefreshTokens // enable silent refresh via refresh tokens
+    >
+      <App />
+    </Auth0Provider>
+  </StrictMode>,
+);
+```
+
+Use the Auth0 hooks throughout your app:
+
+```typescript
+// src/components/AuthButtons.tsx
+import { useAuth0 } from '@auth0/auth0-react';
+
+export function AuthButtons() {
+  const { isAuthenticated, isLoading, loginWithRedirect, logout, user } = useAuth0();
+
+  if (isLoading) return <span>Loading…</span>;
+
+  if (isAuthenticated) {
+    return (
+      <div>
+        <img src={user?.picture} alt={user?.name} width={40} height={40} />
+        <span>{user?.name}</span>
+        <button
+          onClick={() =>
+            logout({ logoutParams: { returnTo: window.location.origin } })
+          }
+        >
+          Sign out
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <button onClick={() => loginWithRedirect()}>
+      Sign in
+    </button>
+  );
+}
+```
+
+Protect components with role-based access using Auth0 custom claims:
+
+```typescript
+// src/components/AdminOnly.tsx
+import { useAuth0 } from '@auth0/auth0-react';
+import type { ReactNode } from 'react';
+
+// Auth0 lets you add custom claims in a post-login Action:
+// event.user.app_metadata.role → api.idToken.setCustomClaim('https://myapp.com/role', role)
+const ROLE_CLAIM = 'https://myapp.com/role';
+
+interface AdminOnlyProps {
+  children: ReactNode;
+  fallback?: ReactNode;
+}
+
+export function AdminOnly({ children, fallback = null }: AdminOnlyProps) {
+  const { user, isAuthenticated } = useAuth0();
+
+  if (!isAuthenticated) return <>{fallback}</>;
+
+  const role = user?.[ROLE_CLAIM] as string | undefined;
+  if (role !== 'admin') return <>{fallback}</>;
+
+  return <>{children}</>;
+}
+```
+
+Get an access token with audience to call your API:
+
+```typescript
+// src/hooks/useApiClient.ts
+import { useAuth0 } from '@auth0/auth0-react';
+import { useMemo } from 'react';
+import axios from 'axios';
+
+export function useApiClient() {
+  const { getAccessTokenSilently } = useAuth0();
+
+  return useMemo(
+    () => ({
+      async get<T>(url: string): Promise<T> {
+        const token = await getAccessTokenSilently();
+        const { data } = await axios.get<T>(url, {
+          baseURL: import.meta.env.VITE_API_URL,
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        return data;
+      },
+    }),
+    [getAccessTokenSilently],
+  );
+}
+```
+
+## Approach 2 — react-oauth/google (Google Only)
+
+For apps that only need Google sign-in, `@react-oauth/google` is a lightweight option:
+
+```bash
+npm install @react-oauth/google jwt-decode
+```
+
+```typescript
+// src/main.tsx
+import { GoogleOAuthProvider } from '@react-oauth/google';
+
+// Wrap your app:
+<GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID}>
+  <App />
+</GoogleOAuthProvider>
+```
+
+```typescript
+// src/components/GoogleSignInButton.tsx
+import { GoogleLogin, type CredentialResponse } from '@react-oauth/google';
+import { jwtDecode } from 'jwt-decode';
+import { useAuth } from '../context/AuthContext';
+
+interface GoogleIdTokenPayload {
+  sub: string;       // stable unique ID — use this as user identifier
+  email: string;
+  name: string;
+  picture: string;
+  email_verified: boolean;
+  iat: number;
+  exp: number;
+}
+
+export function GoogleSignInButton() {
+  const { loginWithGoogle } = useAuth();
+
+  async function handleSuccess(response: CredentialResponse) {
+    if (!response.credential) return;
+
+    // Decode the ID token to get user profile (display purposes only)
+    const profile = jwtDecode<GoogleIdTokenPayload>(response.credential);
+
+    // Send the credential to your backend for verification and session creation
+    // NEVER trust the client-decoded claims for auth — verify server-side
+    await loginWithGoogle(response.credential);
+
+    console.log('Signed in as:', profile.name, '(sub:', profile.sub, ')');
+  }
+
+  function handleError() {
+    console.error('Google Sign-In failed');
+  }
+
+  return (
+    <GoogleLogin
+      onSuccess={handleSuccess}
+      onError={handleError}
+      useOneTap
+      auto_select={false}
+    />
+  );
+}
+```
+
+<Callout type="warning">
+**Always verify the Google ID token on your server.** Use the Google Auth Library for your backend language to cryptographically verify the token signature and `aud` claim before trusting any user data in it. Never accept client-decoded Google credentials at face value — a malicious user could send a forged token.
+</Callout>
+
+## Approach 3 — NextAuth.js (Next.js Apps)
+
+For Next.js applications, NextAuth.js (now called Auth.js) handles the entire PKCE flow, session management, and database persistence:
+
+```bash
+npm install next-auth
+```
+
+```typescript
+// src/app/api/auth/[...nextauth]/route.ts (Next.js App Router)
+import NextAuth from 'next-auth';
+import Google from 'next-auth/providers/google';
+import GitHub from 'next-auth/providers/github';
+
+const handler = NextAuth({
+  providers: [
+    Google({
+      clientId: process.env.GOOGLE_CLIENT_ID!,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+    }),
+    GitHub({
+      clientId: process.env.GITHUB_CLIENT_ID!,
+      clientSecret: process.env.GITHUB_CLIENT_SECRET!,
+    }),
+  ],
+  callbacks: {
+    async jwt({ token, user, account }) {
+      // Persist role from your DB on first sign-in
+      if (user) {
+        token.role = await fetchUserRole(user.id);
+      }
+      return token;
+    },
+    async session({ session, token }) {
+      // Expose role to the client via useSession()
+      if (session.user) {
+        session.user.role = token.role as string;
+      }
+      return session;
+    },
+  },
+  pages: {
+    signIn: '/auth/signin',
+    error: '/auth/error',
+  },
+});
+
+export { handler as GET, handler as POST };
+
+async function fetchUserRole(userId: string): Promise<string> {
+  // Query your database
+  return 'viewer';
+}
+```
+
+Use the session in components:
+
+```typescript
+// src/app/dashboard/page.tsx
+import { getServerSession } from 'next-auth';
+import { redirect } from 'next/navigation';
+
+export default async function DashboardPage() {
+  const session = await getServerSession();
+
+  if (!session) {
+    redirect('/auth/signin');
+  }
+
+  return (
+    <main>
+      <h1>Welcome, {session.user?.name}</h1>
+    </main>
+  );
+}
+```
+
+## Provider Comparison
+
+<ComparisonTable
+  columns={["Provider / Library", "Best For", "Cost", "Setup Complexity", "Customization"]}
+  rows={[
+    ["Auth0", "Production apps needing managed auth, MFA, RBAC out of the box", "Free up to 7,500 MAU then paid", "Low — dashboard-driven", "High via Actions and Rules"],
+    ["Clerk", "React / Next.js with pre-built UI components", "Free up to 10,000 MAU then paid", "Very low — drop-in components", "Medium — component props and themes"],
+    ["NextAuth.js", "Next.js apps wanting full control and self-hosting", "Free (OSS)", "Medium — requires backend setup", "Very high — full access to callbacks"],
+    ["@react-oauth/google", "Apps needing only Google, minimal dependencies", "Free", "Low", "Low — Google's UI only"],
+    ["Supabase Auth", "Apps already using Supabase for database/storage", "Free tier, then usage-based", "Low — integrated with Supabase client", "Medium"],
+    ["Custom PKCE", "Full control, any provider, no vendor lock-in", "Free", "High — significant implementation work", "Total control"],
+  ]}
+/>
+
+## Implementing the State Parameter (CSRF Protection)
+
+If you implement OAuth manually without a library, the `state` parameter is critical for preventing CSRF attacks on your callback endpoint:
+
+```typescript
+// src/utils/oauth.ts
+import { createHash, randomBytes } from 'crypto';
+
+export function generatePKCE() {
+  // code_verifier: 43–128 cryptographically random URL-safe characters
+  const verifier = randomBytes(64).toString('base64url');
+
+  // code_challenge: BASE64URL(SHA256(verifier))
+  const challenge = createHash('sha256')
+    .update(verifier)
+    .digest('base64url');
+
+  return { verifier, challenge };
+}
+
+export function generateState(): string {
+  return randomBytes(32).toString('hex');
+}
+
+export function buildAuthorizationUrl(params: {
+  clientId: string;
+  redirectUri: string;
+  scope: string;
+  codeChallenge: string;
+  state: string;
+}): string {
+  const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+  url.searchParams.set('client_id', params.clientId);
+  url.searchParams.set('redirect_uri', params.redirectUri);
+  url.searchParams.set('response_type', 'code');
+  url.searchParams.set('scope', params.scope);
+  url.searchParams.set('code_challenge', params.codeChallenge);
+  url.searchParams.set('code_challenge_method', 'S256');
+  url.searchParams.set('state', params.state);
+  return url.toString();
+}
+```
+
+```typescript
+// src/hooks/useOAuthLogin.ts
+import { useCallback } from 'react';
+import { generatePKCE, generateState, buildAuthorizationUrl } from '../utils/oauth';
+
+export function useOAuthLogin() {
+  const startLogin = useCallback(() => {
+    const { verifier, challenge } = generatePKCE();
+    const state = generateState();
+
+    // Store in sessionStorage — cleared when the tab closes
+    sessionStorage.setItem('oauth_code_verifier', verifier);
+    sessionStorage.setItem('oauth_state', state);
+
+    const url = buildAuthorizationUrl({
+      clientId: import.meta.env.VITE_GOOGLE_CLIENT_ID,
+      redirectUri: `${window.location.origin}/auth/callback`,
+      scope: 'openid profile email',
+      codeChallenge: challenge,
+      state,
+    });
+
+    window.location.href = url;
+  }, []);
+
+  return { startLogin };
+}
+```
+
+```typescript
+// src/pages/OAuthCallback.tsx
+import { useEffect, useRef } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+
+export function OAuthCallback() {
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const exchanged = useRef(false);
+
+  useEffect(() => {
+    if (exchanged.current) return;
+    exchanged.current = true;
+
+    async function exchangeCode() {
+      const code = searchParams.get('code');
+      const returnedState = searchParams.get('state');
+      const storedState = sessionStorage.getItem('oauth_state');
+      const verifier = sessionStorage.getItem('oauth_code_verifier');
+
+      // CSRF check — state must match
+      if (!returnedState || returnedState !== storedState) {
+        navigate('/login?error=state_mismatch', { replace: true });
+        return;
+      }
+
+      sessionStorage.removeItem('oauth_state');
+      sessionStorage.removeItem('oauth_code_verifier');
+
+      if (!code || !verifier) {
+        navigate('/login?error=missing_params', { replace: true });
+        return;
+      }
+
+      try {
+        // Send code + verifier to YOUR backend — not directly to Google
+        // Your backend exchanges the code with Google using the verifier
+        const response = await fetch('/api/auth/callback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code, codeVerifier: verifier }),
+          credentials: 'include',
+        });
+
+        if (!response.ok) throw new Error('Token exchange failed');
+
+        navigate('/dashboard', { replace: true });
+      } catch (err) {
+        navigate('/login?error=exchange_failed', { replace: true });
+      }
+    }
+
+    exchangeCode();
+  }, [searchParams, navigate]);
+
+  return <p aria-live="polite">Completing sign-in…</p>;
+}
+```
+
+<Callout type="danger">
+**Never exchange the authorization code directly from the browser.** The code exchange must happen on your backend server, which holds the `client_secret`. SPAs using PKCE do not have a client_secret (they are public clients), but exchanging the code server-side still gives you a safe place to set HttpOnly cookies for the resulting tokens and to validate the `state` and `nonce` parameters before trusting any user data.
+</Callout>
+
+## Storing Auth State in Context
+
+After OAuth authentication completes, normalize the user object before storing it in context, regardless of which provider was used:
+
+```typescript
+// src/context/AuthContext.tsx
+import React, { createContext, useContext, useState, type ReactNode } from 'react';
+
+export interface AuthUser {
+  id: string;          // provider's stable `sub` claim
+  email: string;
+  name: string;
+  avatarUrl: string | null;
+  role: string;
+  provider: 'google' | 'github' | 'apple' | 'email';
+}
+
+interface AuthContextValue {
+  user: AuthUser | null;
+  isAuthenticated: boolean;
+  setUser: (user: AuthUser | null) => void;
+}
+
+const AuthContext = createContext<AuthContextValue | null>(null);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<AuthUser | null>(null);
+
+  return (
+    <AuthContext.Provider value={{ user, isAuthenticated: !!user, setUser }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth() {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
+  return ctx;
+}
+```
+
+## Logout — Provider + Local
+
+OAuth logout requires two steps: ending the local session and (optionally) logging out of the provider:
+
+```typescript
+// src/hooks/useLogout.ts
+import { useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+
+export function useLogout() {
+  const { setUser } = useAuth();
+  const navigate = useNavigate();
+
+  const logout = useCallback(async (options?: { endProviderSession?: boolean }) => {
+    // 1. Invalidate server-side session / refresh token
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+
+    // 2. Clear local state
+    setUser(null);
+
+    // 3. Optionally end the Google/GitHub session
+    // Warning: this logs the user out of Google in their browser — usually unwanted
+    if (options?.endProviderSession) {
+      window.location.href =
+        `https://accounts.google.com/Logout?continue=${encodeURIComponent(window.location.origin + '/login')}`;
+      return;
+    }
+
+    navigate('/login', { replace: true });
+  }, [setUser, navigate]);
+
+  return { logout };
+}
+```
+
+<InterviewQA
+  questions={[
+    {
+      question: "What is PKCE and why is it required for SPAs using OAuth 2.0?",
+      answer: "PKCE (Proof Key for Code Exchange) is a security extension to the OAuth 2.0 Authorization Code Flow. Before the login redirect, the SPA generates a random `code_verifier` and sends a hashed version (`code_challenge`) to the authorization server. When the code is later exchanged for tokens, the SPA includes the original `code_verifier`. The server hashes it and compares — if they match, the exchange is legitimate. This prevents authorization code interception attacks: even if a malicious app intercepts the authorization code from the redirect URI, it cannot exchange it without the `code_verifier` that was never transmitted over the network. PKCE is now required for all public OAuth clients (SPAs and mobile apps) per RFC 9700.",
+      level: "advanced"
+    },
+    {
+      question: "What is the difference between OAuth 2.0 and OpenID Connect, and which one do you use for 'Sign in with Google'?",
+      answer: "OAuth 2.0 is an authorization framework — it grants your app permission to access resources on the user's behalf (e.g., reading their Google Drive files). OpenID Connect (OIDC) is an authentication layer built on top of OAuth 2.0 — it provides a standardized way to verify the user's identity and get basic profile information via an ID token (a JWT). 'Sign in with Google' uses OpenID Connect. The flow is OAuth 2.0 under the hood, but you request `scope=openid profile email` and receive an ID token in addition to the access token. The ID token's `sub` claim is the user's stable unique identifier you should store in your database.",
+      level: "intermediate"
+    },
+    {
+      question: "Why should the `state` parameter be validated in the OAuth callback, and what attack does it prevent?",
+      answer: "The `state` parameter is a random, unguessable value your app generates before the OAuth redirect and stores locally (in sessionStorage). After the provider redirects back to your callback URL, you compare the returned `state` with the stored value. If they don't match, you abort the flow. This prevents Cross-Site Request Forgery (CSRF) attacks on the OAuth callback: without `state` validation, an attacker could craft a URL that initiates a code exchange using their own authorization code, potentially linking the victim's account to the attacker's provider account — an 'account fixation' attack.",
+      level: "advanced"
+    }
+  ]}
+/>

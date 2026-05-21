@@ -1,0 +1,399 @@
+---
+title: Event Handling
+description: Master React event handling — from basic onClick and onChange to preventing defaults, stopping propagation, and naming conventions.
+category: Events
+order: 1
+slug: events/event-handling
+difficulty: beginner
+estimatedTime: 20
+tags: [events, onClick, onChange, onSubmit, preventDefault, stopPropagation, event handler, beginner]
+lastUpdated: "2024-01-15"
+---
+
+# Event Handling
+
+React makes event handling intuitive by using the same familiar event names from the browser — just written in camelCase. You attach handlers directly in JSX, and React takes care of wiring them up efficiently.
+
+## JSX Event Handler Syntax
+
+In the browser you write `onclick="handler()"`. In React you write `onClick={handler}`.
+
+There are two critical differences:
+1. **camelCase** — `onClick`, not `onclick`. `onChange`, not `onchange`.
+2. **Pass a function reference**, not a call — `onClick={handleClick}`, not `onClick={handleClick()}`.
+
+```tsx
+// ✅ Correct — pass a function reference
+<button onClick={handleClick}>Click me</button>
+
+// ❌ Wrong — calls handleClick immediately on render, passes its return value
+<button onClick={handleClick()}>Click me</button>
+
+// ✅ Correct — inline arrow function (useful when you need arguments)
+<button onClick={() => handleClick(item.id)}>Delete</button>
+
+// ✅ Also correct — inline arrow function for simple logic
+<button onClick={() => setIsOpen(prev => !prev)}>Toggle</button>
+```
+
+<Callout type="warning">
+Writing `onClick={handleClick()}` with parentheses is one of the most common beginner mistakes. The parentheses mean "call this function right now and pass the return value as the handler." Since `handleClick` returns `undefined`, you end up with no handler at all — and the function fires on every render instead of on click.
+</Callout>
+
+## Common Events Reference
+
+<ComparisonTable
+  columns={["Event Prop", "DOM Equivalent", "Fires When", "Common Use"]}
+  rows={[
+    ["onClick", "onclick", "Element is clicked", "Buttons, links, cards"],
+    ["onChange", "oninput / onchange", "Input value changes", "Text inputs, selects, checkboxes"],
+    ["onSubmit", "onsubmit", "Form is submitted", "Form validation and data collection"],
+    ["onKeyDown", "onkeydown", "Key is pressed", "Keyboard shortcuts, Enter to submit"],
+    ["onKeyUp", "onkeyup", "Key is released", "Search-as-you-type"],
+    ["onFocus", "onfocus", "Element receives focus", "Show helper text, highlight field"],
+    ["onBlur", "onblur", "Element loses focus", "Validate field on leave"],
+    ["onMouseEnter", "onmouseenter", "Cursor enters element (no bubble)", "Tooltips, hover effects"],
+    ["onMouseLeave", "onmouseleave", "Cursor leaves element (no bubble)", "Hide tooltips"],
+    ["onMouseOver", "onmouseover", "Cursor enters element or child", "Highlight regions"],
+    ["onScroll", "onscroll", "Element is scrolled", "Infinite scroll, sticky headers"],
+    ["onDragStart", "ondragstart", "Drag begins", "Drag-and-drop UIs"],
+    ["onDrop", "ondrop", "Item dropped on element", "Drag-and-drop targets"],
+  ]}
+/>
+
+## The Event Object
+
+React passes a **SyntheticEvent** object to your handler — a cross-browser wrapper with the same interface as native DOM events.
+
+```tsx
+function SearchInput() {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    console.log(e.target.value)      // current input value
+    console.log(e.target.name)       // name attribute of the input
+    console.log(e.type)              // "change"
+    console.log(e.currentTarget)     // element the handler is attached to
+  }
+
+  return <input name="search" onChange={handleChange} />
+}
+```
+
+You can also access the event inline:
+
+```tsx
+<input onChange={e => console.log(e.target.value)} />
+```
+
+## Preventing Default Behavior
+
+Many HTML elements have built-in browser behaviors. Use `e.preventDefault()` to stop them:
+
+```tsx
+function LoginForm() {
+  const [email, setEmail]     = useState('')
+  const [password, setPassword] = useState('')
+
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()  // ← stops the full-page form POST/GET navigation
+
+    // Now you control what happens next
+    console.log({ email, password })
+    // await loginUser(email, password)
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <input type="email"    value={email}    onChange={e => setEmail(e.target.value)} />
+      <input type="password" value={password} onChange={e => setPassword(e.target.value)} />
+      <button type="submit">Login</button>
+    </form>
+  )
+}
+```
+
+Other common uses of `preventDefault`:
+
+```tsx
+// Prevent link navigation
+<a href="/dashboard" onClick={e => { e.preventDefault(); router.push('/dashboard') }}>
+  Dashboard
+</a>
+
+// Prevent drag default behavior
+<div onDragOver={e => e.preventDefault()}>Drop zone</div>
+
+// Prevent context menu on right-click
+<div onContextMenu={e => { e.preventDefault(); showCustomMenu(e.clientX, e.clientY) }}>
+  Right-click me
+</div>
+```
+
+## Stopping Propagation
+
+Events bubble up the DOM tree by default. `e.stopPropagation()` prevents an event from reaching parent handlers.
+
+```tsx
+function ArticleCard({ article, onCardClick }) {
+  const handleSaveClick = (e: React.MouseEvent) => {
+    e.stopPropagation()  // ← prevent click from also triggering onCardClick
+    saveArticle(article.id)
+  }
+
+  return (
+    <div onClick={() => onCardClick(article.id)} style={{ cursor: 'pointer' }}>
+      <h3>{article.title}</h3>
+      <p>{article.excerpt}</p>
+      {/* Without stopPropagation, clicking Save also triggers card navigation */}
+      <button onClick={handleSaveClick}>Save</button>
+    </div>
+  )
+}
+```
+
+<Callout type="tip">
+Use `stopPropagation` sparingly. It makes event flow harder to reason about and can silently break parent components that rely on event bubbling. Often a better solution is restructuring your component tree to avoid nested interactive elements — for example, using CSS `pointer-events: none` or restructuring DOM elements so the button is a sibling, not a child, of the clickable container.
+</Callout>
+
+## Passing Arguments to Handlers
+
+When a handler needs extra data (like which item was clicked), use an arrow function wrapper:
+
+```tsx
+function TodoList({ todos, onDelete, onToggle }) {
+  return (
+    <ul>
+      {todos.map(todo => (
+        <li key={todo.id}>
+          <span>{todo.text}</span>
+          {/* Arrow function passes the id to the handler */}
+          <button onClick={() => onToggle(todo.id)}>
+            {todo.done ? '✓' : '○'}
+          </button>
+          <button onClick={() => onDelete(todo.id)}>
+            Delete
+          </button>
+        </li>
+      ))}
+    </ul>
+  )
+}
+```
+
+For performance-sensitive lists, you can extract handlers into the child component to avoid creating new arrow functions on every render:
+
+```tsx
+// The child component owns its own handler — no arrow function in the list
+function TodoItem({ todo, onToggle, onDelete }) {
+  const handleToggle = () => onToggle(todo.id)
+  const handleDelete = () => onDelete(todo.id)
+
+  return (
+    <li>
+      <span>{todo.text}</span>
+      <button onClick={handleToggle}>{todo.done ? '✓' : '○'}</button>
+      <button onClick={handleDelete}>Delete</button>
+    </li>
+  )
+}
+```
+
+## Keyboard Events
+
+Handle keyboard interactions with `onKeyDown`, `onKeyUp`, or `onKeyPress` (deprecated):
+
+```tsx
+function SearchBox() {
+  const [query, setQuery] = useState('')
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      submitSearch(query)
+    }
+    if (e.key === 'Escape') {
+      setQuery('')
+    }
+    // Check modifier keys
+    if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault()  // prevent browser default Ctrl+K
+      openCommandPalette()
+    }
+  }
+
+  return (
+    <input
+      value={query}
+      onChange={e => setQuery(e.target.value)}
+      onKeyDown={handleKeyDown}
+      placeholder="Search (Enter to submit, Esc to clear)"
+    />
+  )
+}
+```
+
+## Focus and Blur
+
+`onFocus` and `onBlur` are useful for validation patterns and accessible UI:
+
+```tsx
+function EmailField() {
+  const [value, setValue]       = useState('')
+  const [touched, setTouched]   = useState(false)
+  const [focused, setFocused]   = useState(false)
+
+  const isValid   = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+  const showError = touched && !focused && !isValid && value.length > 0
+
+  return (
+    <div>
+      <input
+        type="email"
+        value={value}
+        onChange={e => setValue(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => { setFocused(false); setTouched(true) }}
+        style={{ borderColor: showError ? 'red' : undefined }}
+        aria-invalid={showError}
+        aria-describedby={showError ? 'email-error' : undefined}
+      />
+      {showError && (
+        <span id="email-error" style={{ color: 'red', fontSize: 12 }}>
+          Please enter a valid email address.
+        </span>
+      )}
+    </div>
+  )
+}
+```
+
+## Handler Naming Conventions
+
+Consistent naming makes code easier to scan and understand at a glance.
+
+```tsx
+// Pattern: handle + What + Action (for handlers defined in the same component)
+const handleButtonClick    = () => { ... }
+const handleFormSubmit     = (e) => { e.preventDefault(); ... }
+const handleInputChange    = (e) => { setValue(e.target.value) }
+const handleModalClose     = () => { setIsOpen(false) }
+const handleItemSelect     = (id) => { setSelectedId(id) }
+
+// Pattern: on + What + Action (for callback props passed to children)
+<Button onClick={handleButtonClick} />
+<Form onSubmit={handleFormSubmit} />
+<Input onChange={handleInputChange} />
+<Modal onClose={handleModalClose} />
+<List onItemSelect={handleItemSelect} />
+```
+
+## Interactive Example
+
+<LiveEditor code={`import { useState } from 'react'
+
+function InteractiveForm() {
+  const [name, setName]         = useState('')
+  const [agreed, setAgreed]     = useState(false)
+  const [submitted, setSubmitted] = useState(false)
+  const [lastKey, setLastKey]   = useState('')
+
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    if (name && agreed) setSubmitted(true)
+  }
+
+  const handleKeyDown = (e) => {
+    setLastKey(e.key)
+    if (e.key === 'Escape') setName('')
+  }
+
+  if (submitted) {
+    return (
+      <div style={{ textAlign: 'center', padding: 32, fontFamily: 'sans-serif' }}>
+        <div style={{ fontSize: 48, marginBottom: 12 }}>🎉</div>
+        <h2>Welcome, {name}!</h2>
+        <button onClick={() => { setSubmitted(false); setName(''); setAgreed(false) }}
+          style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #e5e7eb', cursor: 'pointer', marginTop: 12 }}>
+          Start over
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <form onSubmit={handleSubmit} style={{ maxWidth: 360, margin: '20px auto', fontFamily: 'sans-serif', padding: 24, border: '1px solid #e5e7eb', borderRadius: 12 }}>
+      <h2 style={{ margin: '0 0 20px' }}>Sign Up</h2>
+
+      <label style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: 14 }}>
+        Your Name
+      </label>
+      <input
+        value={name}
+        onChange={e => setName(e.target.value)}
+        onKeyDown={handleKeyDown}
+        onFocus={() => setLastKey('(focused)')}
+        onBlur={() => setLastKey('(blurred)')}
+        placeholder="Press Esc to clear"
+        style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #e5e7eb', marginBottom: 4, boxSizing: 'border-box', fontSize: 14 }}
+      />
+      {lastKey && (
+        <p style={{ fontSize: 12, color: '#9ca3af', margin: '0 0 16px' }}>Last event: {lastKey}</p>
+      )}
+
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20, cursor: 'pointer' }}>
+        <input
+          type="checkbox"
+          checked={agreed}
+          onChange={e => setAgreed(e.target.checked)}
+        />
+        <span style={{ fontSize: 14 }}>I agree to the terms</span>
+      </label>
+
+      <button
+        type="submit"
+        disabled={!name || !agreed}
+        style={{
+          width: '100%', padding: '10px 0', borderRadius: 8,
+          background: name && agreed ? '#3b82f6' : '#e5e7eb',
+          color: name && agreed ? 'white' : '#9ca3af',
+          border: 'none', cursor: name && agreed ? 'pointer' : 'default',
+          fontWeight: 600, fontSize: 15, transition: '0.15s'
+        }}
+      >
+        Submit
+      </button>
+    </form>
+  )
+}
+
+export default InteractiveForm`} />
+
+## Summary
+
+- Use **camelCase** event props (`onClick`, `onChange`, `onSubmit`).
+- **Pass a function reference**, not a call — `onClick={handler}`, not `onClick={handler()}`.
+- Use an **arrow function wrapper** when you need to pass arguments: `onClick={() => handler(id)}`.
+- `e.preventDefault()` stops native browser behavior (form submission, link navigation).
+- `e.stopPropagation()` prevents the event from bubbling to parent handlers.
+- Name handlers with `handle` + action inside the component, `on` + action for callback props.
+
+<InterviewQA questions={[
+  {
+    question: "What is the difference between onClick={handleClick} and onClick={handleClick()} in JSX?",
+    answer: "onClick={handleClick} passes the function itself as the event handler — React will call it when the button is clicked. onClick={handleClick()} immediately calls handleClick during render and passes its return value (usually undefined) as the handler. The result is that the function fires on every render instead of on click, and the click event has no handler at all. Always pass a reference, not a call.",
+    level: "beginner"
+  },
+  {
+    question: "When would you use e.stopPropagation() and what are the trade-offs?",
+    answer: "stopPropagation is used when a nested interactive element should handle a click without triggering the parent's click handler — for example, a Delete button inside a clickable card. The trade-off is that it makes event flow harder to trace: parent components have no way of knowing the event happened, which can silently break analytics tracking, keyboard accessibility handling, or other parent-level listeners. Prefer restructuring your DOM to avoid deeply nested interactive elements where possible.",
+    level: "intermediate"
+  },
+  {
+    question: "How do you handle a form submission in React without causing a page reload?",
+    answer: "Attach an onSubmit handler to the form element and call e.preventDefault() as the first line of the handler. This cancels the browser's default behavior of serializing the form data and sending an HTTP request (which causes a page reload). After preventing the default, you control what happens: you can validate the inputs, call an API with fetch, update state, redirect with a router, etc.",
+    level: "beginner"
+  },
+  {
+    question: "What is the most reliable way to pass an item's ID to a click handler in a list?",
+    answer: "Use an arrow function wrapper in the JSX: onClick={() => handleDelete(item.id)}. This creates a closure over the current item in the map iteration. An alternative is to extract the list item into a child component and define the handler there — const handleClick = () => onDelete(item.id) — which avoids creating a new arrow function on every parent render. For most lists the arrow function wrapper is fine; move to a child component only if profiling shows a performance issue.",
+    level: "beginner"
+  }
+]} />

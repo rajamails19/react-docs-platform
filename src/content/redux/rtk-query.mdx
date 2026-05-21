@@ -1,0 +1,538 @@
+---
+title: RTK Query
+description: The complete guide to RTK Query — Redux Toolkit's built-in data fetching and caching layer. Learn createApi, auto-generated hooks, cache invalidation, optimistic updates, and when to use RTK Query vs React Query.
+category: Redux
+order: 3
+slug: redux/rtk-query
+difficulty: advanced
+badge: new
+estimatedTime: 30
+tags: [rtk query, redux toolkit, createApi, caching, mutations, invalidation, optimistic updates, polling, prefetch, CRUD]
+lastUpdated: 2024-01-15
+---
+
+# RTK Query
+
+**RTK Query** is a powerful data fetching and caching tool built directly into Redux Toolkit. It eliminates the need to hand-write `createAsyncThunk` for every API call, maintains a normalized cache, and auto-generates React hooks — all while integrating seamlessly with the Redux DevTools.
+
+<Callout type="info" title="No separate install needed">
+RTK Query ships inside `@reduxjs/toolkit`. If you already use RTK, you have RTK Query. Import from `@reduxjs/toolkit/query/react` to get the React-specific hooks.
+</Callout>
+
+## The Mental Model
+
+RTK Query replaces the pattern of *"dispatch a thunk, handle three lifecycle actions, manage loading/error/data state in a slice."* You declare **what** your endpoints look like; RTK Query figures out the **how**.
+
+<MermaidDiagram chart={`
+flowchart TB
+  subgraph RTK Query
+    A[createApi] --> B[baseQuery]
+    A --> C[endpoints]
+    C --> D[query endpoints]
+    C --> E[mutation endpoints]
+    D --> F[useGetXQuery hook]
+    E --> G[useCreateXMutation hook]
+  end
+  F -->|auto cache| H[Redux Store]
+  G -->|invalidates tags| H
+  H -->|re-fetch| F
+`} caption="RTK Query generates hooks and manages the cache automatically" />
+
+## createApi — The Foundation
+
+`createApi` is the single entry point. You define a **baseQuery** (how to make requests) and **endpoints** (what to request).
+
+```tsx
+// src/services/usersApi.ts
+import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react'
+import type { RootState } from '../app/store'
+
+export interface User {
+  id: number
+  name: string
+  email: string
+  role: 'admin' | 'editor' | 'viewer'
+  createdAt: string
+}
+
+export interface UsersListResponse {
+  users: User[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+export interface CreateUserRequest {
+  name: string
+  email: string
+  role: User['role']
+}
+
+export const usersApi = createApi({
+  reducerPath: 'usersApi', // key in the Redux store
+  baseQuery: fetchBaseQuery({
+    baseUrl: import.meta.env.VITE_API_BASE,
+    // Inject auth token on every request
+    prepareHeaders: (headers, { getState }) => {
+      const token = (getState() as RootState).auth.token
+      if (token) {
+        headers.set('Authorization', `Bearer ${token}`)
+      }
+      return headers
+    },
+  }),
+  tagTypes: ['User'], // declare all cache tag types upfront
+  endpoints: () => ({}), // defined below via injectEndpoints
+})
+```
+
+<Callout type="tip" title="Split your endpoint definitions">
+For large APIs, define endpoints in separate files using `usersApi.injectEndpoints(...)` rather than cramming everything into one `createApi` call. This enables code-splitting and keeps each feature file self-contained.
+</Callout>
+
+## Defining Endpoints — Query vs Mutation
+
+RTK Query distinguishes between **queries** (read data, GET) and **mutations** (modify data, POST/PATCH/DELETE). This distinction drives automatic cache invalidation.
+
+```tsx
+// src/services/usersEndpoints.ts
+import { usersApi } from './usersApi'
+import type { User, UsersListResponse, CreateUserRequest } from './usersApi'
+
+export const usersEndpoints = usersApi.injectEndpoints({
+  endpoints: (builder) => ({
+
+    // ── QUERIES ──────────────────────────────────────────────────
+    getUsers: builder.query<UsersListResponse, { page: number; pageSize: number; search?: string }>({
+      query: ({ page, pageSize, search }) => ({
+        url: 'users',
+        params: { page, pageSize, ...(search ? { search } : {}) },
+      }),
+      providesTags: (result) =>
+        result
+          ? [
+              ...result.users.map(({ id }) => ({ type: 'User' as const, id })),
+              { type: 'User', id: 'LIST' },
+            ]
+          : [{ type: 'User', id: 'LIST' }],
+    }),
+
+    getUserById: builder.query<User, number>({
+      query: (id) => `users/${id}`,
+      providesTags: (_result, _error, id) => [{ type: 'User', id }],
+    }),
+
+    // ── MUTATIONS ─────────────────────────────────────────────────
+    createUser: builder.mutation<User, CreateUserRequest>({
+      query: (body) => ({
+        url: 'users',
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: [{ type: 'User', id: 'LIST' }],
+    }),
+
+    updateUser: builder.mutation<User, { id: number; data: Partial<User> }>({
+      query: ({ id, data }) => ({
+        url: `users/${id}`,
+        method: 'PATCH',
+        body: data,
+      }),
+      invalidatesTags: (_result, _error, { id }) => [{ type: 'User', id }],
+    }),
+
+    deleteUser: builder.mutation<void, number>({
+      query: (id) => ({
+        url: `users/${id}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: (_result, _error, id) => [
+        { type: 'User', id },
+        { type: 'User', id: 'LIST' },
+      ],
+    }),
+  }),
+  overrideExisting: false,
+})
+
+// Export auto-generated hooks — named by convention
+export const {
+  useGetUsersQuery,
+  useGetUserByIdQuery,
+  useCreateUserMutation,
+  useUpdateUserMutation,
+  useDeleteUserMutation,
+} = usersEndpoints
+```
+
+## Wiring the API into the Store
+
+```tsx
+// src/app/store.ts
+import { configureStore } from '@reduxjs/toolkit'
+import { usersApi } from '../services/usersApi'
+import authReducer from '../features/auth/authSlice'
+
+export const store = configureStore({
+  reducer: {
+    auth: authReducer,
+    [usersApi.reducerPath]: usersApi.reducer, // ← add the API reducer
+  },
+  middleware: (getDefaultMiddleware) =>
+    getDefaultMiddleware().concat(usersApi.middleware), // ← add the API middleware
+})
+
+export type RootState   = ReturnType<typeof store.getState>
+export type AppDispatch = typeof store.dispatch
+```
+
+<Callout type="warning" title="Always add the middleware">
+The `usersApi.middleware` is what powers caching, invalidation, polling, and lifecycle management. Forgetting it means your hooks will fetch data but caching and invalidation will silently not work.
+</Callout>
+
+## Auto-Generated Hooks — useGetUsersQuery
+
+Each query endpoint generates a `use{EndpointName}Query` hook. It returns a rich object with all the state you need.
+
+```tsx
+// src/features/users/UserListPage.tsx
+import { useState } from 'react'
+import { useGetUsersQuery } from '../../services/usersEndpoints'
+
+export function UserListPage() {
+  const [page, setPage]   = useState(1)
+  const [search, setSearch] = useState('')
+
+  const {
+    data,          // UsersListResponse | undefined
+    isLoading,     // true only on first load (no cached data yet)
+    isFetching,    // true whenever a network request is in flight
+    isError,
+    error,
+    refetch,       // manually trigger re-fetch
+  } = useGetUsersQuery({ page, pageSize: 20, search: search || undefined })
+
+  return (
+    <div>
+      <input
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        placeholder="Search users…"
+      />
+
+      {isLoading && <p>Loading…</p>}
+      {isError   && <p>Error: {JSON.stringify(error)}</p>}
+
+      {data && (
+        <>
+          <p>{data.total} users found</p>
+          <ul>
+            {data.users.map(u => (
+              <li key={u.id}>{u.name} — {u.role}</li>
+            ))}
+          </ul>
+          <button disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Prev</button>
+          <span> Page {page} </span>
+          <button disabled={page * 20 >= data.total} onClick={() => setPage(p => p + 1)}>Next</button>
+        </>
+      )}
+    </div>
+  )
+}
+```
+
+## Mutations — useCreateUserMutation
+
+Mutation hooks return a tuple: `[triggerFn, resultObject]`.
+
+```tsx
+// src/features/users/CreateUserForm.tsx
+import { useCreateUserMutation } from '../../services/usersEndpoints'
+import type { CreateUserRequest } from '../../services/usersApi'
+
+export function CreateUserForm() {
+  const [createUser, { isLoading, isSuccess, isError, error, reset }] =
+    useCreateUserMutation()
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    const form = e.currentTarget
+    const data: CreateUserRequest = {
+      name:  (form.elements.namedItem('name')  as HTMLInputElement).value,
+      email: (form.elements.namedItem('email') as HTMLInputElement).value,
+      role:  (form.elements.namedItem('role')  as HTMLSelectElement).value as CreateUserRequest['role'],
+    }
+
+    try {
+      const user = await createUser(data).unwrap() // throws on error
+      console.log('Created:', user)
+    } catch (err) {
+      console.error('Create failed:', err)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <input name="name"  placeholder="Name"  required />
+      <input name="email" type="email" placeholder="Email" required />
+      <select name="role">
+        <option value="viewer">Viewer</option>
+        <option value="editor">Editor</option>
+        <option value="admin">Admin</option>
+      </select>
+      <button type="submit" disabled={isLoading}>
+        {isLoading ? 'Creating…' : 'Create User'}
+      </button>
+      {isSuccess && <p>User created! <button onClick={reset}>Create another</button></p>}
+      {isError   && <p>Failed: {JSON.stringify(error)}</p>}
+    </form>
+  )
+}
+```
+
+## Cache Tags — providesTags / invalidatesTags
+
+Cache tags are RTK Query's invalidation mechanism. A query **provides** tags; a mutation **invalidates** them. When a mutation invalidates a tag, every query that provides that tag is automatically re-fetched.
+
+<MermaidDiagram chart={`
+sequenceDiagram
+  participant C as Component
+  participant Q as getUsers query
+  participant M as createUser mutation
+  participant Cache
+
+  C->>Q: mount → useGetUsersQuery
+  Q->>Cache: store result, providesTags: [{type:'User', id:'LIST'}]
+  C->>M: submit → createUser(data)
+  M->>Cache: invalidatesTags: [{type:'User', id:'LIST'}]
+  Cache->>Q: tag invalidated → trigger refetch
+  Q-->>C: fresh data
+`} caption="Tag-based cache invalidation flow" />
+
+```tsx
+// Tag naming strategy
+providesTags: (result) =>
+  result
+    ? [
+        // Tag each individual item
+        ...result.users.map(({ id }) => ({ type: 'User' as const, id })),
+        // Tag the list as a whole
+        { type: 'User', id: 'LIST' },
+      ]
+    : [{ type: 'User', id: 'LIST' }]
+
+// updateUser only invalidates the specific item — avoids full list refetch
+invalidatesTags: (_result, _error, { id }) => [{ type: 'User', id }]
+
+// deleteUser invalidates both the item and the list
+invalidatesTags: (_result, _error, id) => [
+  { type: 'User', id },
+  { type: 'User', id: 'LIST' },
+]
+```
+
+<Callout type="tip" title="Granular invalidation saves bandwidth">
+Tagging individual items (by ID) and the list separately means `updateUser` only re-fetches the single changed user, not the entire paginated list. `createUser` and `deleteUser` invalidate the list because item count changed.
+</Callout>
+
+## Optimistic Updates
+
+Optimistic updates change the cache immediately, before the server responds. If the mutation fails, RTK Query rolls back automatically.
+
+```tsx
+updateUser: builder.mutation<User, { id: number; data: Partial<User> }>({
+  query: ({ id, data }) => ({
+    url: `users/${id}`,
+    method: 'PATCH',
+    body: data,
+  }),
+
+  // Optimistic update via onQueryStarted
+  async onQueryStarted({ id, data }, { dispatch, queryFulfilled }) {
+    // Apply the optimistic patch immediately
+    const patchResult = dispatch(
+      usersApi.util.updateQueryData(
+        'getUsers',
+        { page: 1, pageSize: 20 }, // must match the query arg exactly
+        (draft) => {
+          const user = draft.users.find((u) => u.id === id)
+          if (user) Object.assign(user, data)
+        }
+      )
+    )
+
+    try {
+      await queryFulfilled // wait for server confirmation
+    } catch {
+      patchResult.undo() // revert on failure
+    }
+  },
+}),
+```
+
+<Callout type="warning" title="Match the query args exactly">
+`updateQueryData` requires the exact query argument object you used when calling the query hook. If the argument shape differs, RTK Query will not find the cached entry and the optimistic update silently does nothing. Consider storing query args in a ref or using `selectInvalidatedBy`.
+</Callout>
+
+## Polling
+
+Polling re-fetches data at a fixed interval. Pass `pollingInterval` (in ms) to the query hook options.
+
+```tsx
+// Re-fetch the job queue status every 3 seconds
+const { data: jobStatus } = useGetJobStatusQuery(jobId, {
+  pollingInterval: 3000,
+  // Stop polling when the job is complete
+  skip: jobStatus?.status === 'completed',
+})
+```
+
+## Prefetching
+
+Prefetch data before the user needs it — on hover, on navigation, or when a parent component mounts.
+
+```tsx
+// src/features/users/UserRow.tsx
+import { usePrefetch } from '../../services/usersEndpoints'
+
+function UserRow({ userId }: { userId: number }) {
+  const prefetchUser = usePrefetch('getUserById')
+
+  return (
+    <li
+      onMouseEnter={() => prefetchUser(userId)}  // prefetch on hover
+    >
+      <a href={`/users/${userId}`}>View profile</a>
+    </li>
+  )
+}
+```
+
+## Injecting Endpoints into an Existing API
+
+Split large APIs across feature files without creating multiple `createApi` instances.
+
+```tsx
+// src/services/postsEndpoints.ts
+import { usersApi } from './usersApi' // reuse the same API instance
+
+export const postsEndpoints = usersApi.injectEndpoints({
+  endpoints: (builder) => ({
+    getPosts: builder.query<Post[], void>({
+      query: () => 'posts',
+      providesTags: ['Post'],
+    }),
+  }),
+  overrideExisting: false,
+})
+
+export const { useGetPostsQuery } = postsEndpoints
+```
+
+## Full CRUD Example — Live
+
+<LiveEditor code={`// Complete CRUD with RTK Query hooks
+import { useState } from 'react'
+
+// Simulate RTK Query data
+const mockUsers = [
+  { id: 1, name: 'Alice Chen', email: 'alice@acme.com', role: 'admin' },
+  { id: 2, name: 'Bob Kumar', email: 'bob@acme.com', role: 'editor' },
+  { id: 3, name: 'Carol Smith', email: 'carol@acme.com', role: 'viewer' },
+]
+
+export default function UserCRUD() {
+  const [users, setUsers] = useState(mockUsers)
+  const [newName, setNewName] = useState('')
+  const [editing, setEditing] = useState(null)
+  const [editName, setEditName] = useState('')
+
+  const handleCreate = () => {
+    if (!newName.trim()) return
+    setUsers(prev => [...prev, { id: Date.now(), name: newName, email: newName.toLowerCase().replace(' ','.') + '@demo.com', role: 'viewer' }])
+    setNewName('')
+  }
+
+  const handleDelete = (id) => setUsers(prev => prev.filter(u => u.id !== id))
+
+  const handleUpdate = (id) => {
+    setUsers(prev => prev.map(u => u.id === id ? { ...u, name: editName } : u))
+    setEditing(null)
+    setEditName('')
+  }
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: 16, maxWidth: 500 }}>
+      <h3>Users ({users.length})</h3>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <input value={newName} onChange={e => setNewName(e.target.value)}
+          placeholder="New user name" style={{ flex: 1, padding: 4 }} />
+        <button onClick={handleCreate} style={{ background: '#4f46e5', color: 'white', border: 'none', padding: '4px 12px', borderRadius: 4 }}>
+          Add
+        </button>
+      </div>
+      {users.map(u => (
+        <div key={u.id} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, padding: 8, border: '1px solid #e5e7eb', borderRadius: 6 }}>
+          {editing === u.id
+            ? <input value={editName} onChange={e => setEditName(e.target.value)} style={{ flex: 1, padding: 4 }} />
+            : <span style={{ flex: 1 }}>{u.name} <small style={{ color: '#6b7280' }}>({u.role})</small></span>
+          }
+          {editing === u.id
+            ? <button onClick={() => handleUpdate(u.id)} style={{ background: '#16a34a', color: 'white', border: 'none', padding: '2px 8px', borderRadius: 4 }}>Save</button>
+            : <button onClick={() => { setEditing(u.id); setEditName(u.name) }} style={{ background: '#f59e0b', color: 'white', border: 'none', padding: '2px 8px', borderRadius: 4 }}>Edit</button>
+          }
+          <button onClick={() => handleDelete(u.id)} style={{ background: '#dc2626', color: 'white', border: 'none', padding: '2px 8px', borderRadius: 4 }}>Del</button>
+        </div>
+      ))}
+    </div>
+  )
+}`} />
+
+## RTK Query vs React Query
+
+<ComparisonTable
+  columns={["Feature", "RTK Query", "React Query (TanStack)"]}
+  rows={[
+    ["Setup overhead", "Low if already using RTK", "Low, no Redux required"],
+    ["Bundle cost", "0 extra (inside RTK)", "~13 kB gzipped"],
+    ["Cache storage", "Redux store (DevTools visible)", "Internal query cache"],
+    ["State integration", "Seamless with Redux slices", "Separate from Redux"],
+    ["Global state", "Unified with Redux", "Query cache only, not global"],
+    ["Optimistic updates", "onQueryStarted + updateQueryData", "onMutate + context rollback"],
+    ["Invalidation model", "Tag-based (declarative)", "Query key-based (explicit)"],
+    ["Infinite scroll", "Manual (no built-in)", "Built-in useInfiniteQuery"],
+    ["Devtools", "Redux DevTools", "Dedicated React Query DevTools"],
+    ["SSR / Next.js", "Experimental hydration", "First-class SSR support"],
+    ["Non-Redux apps", "Not suitable", "Ideal"],
+    ["Learning curve", "Higher (need Redux knowledge)", "Lower"]
+  ]}
+/>
+
+<Callout type="info" title="When to use RTK Query vs React Query">
+**Choose RTK Query** when your app already uses Redux Toolkit and you want a unified store. Cache state is visible in DevTools alongside your app state, and you avoid syncing server data back into Redux slices manually.
+
+**Choose React Query** when you do not use Redux, when you need infinite scroll out of the box, or when you are building a Next.js app that benefits from React Query's first-class SSR and streaming support.
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "What is the difference between isLoading and isFetching in an RTK Query hook?",
+    answer: "isLoading is true only when there is no cached data and a network request is in flight — this is the initial load. isFetching is true whenever any network request is in flight for this query, including background refetches triggered by cache invalidation, polling, or a window focus event. A component that shows a full-page skeleton should check isLoading; a component that shows a subtle spinner to signal a background refresh should check isFetching.",
+    level: "intermediate"
+  },
+  {
+    question: "How does RTK Query's tag-based cache invalidation work, and why is tagging individual items by ID important?",
+    answer: "Each query endpoint declares providesTags — an array of tag objects like { type: 'User', id: 3 }. Each mutation declares invalidatesTags. When a mutation completes, RTK Query finds all cached query results that provided any of the invalidated tags and marks them stale, triggering an automatic refetch for any currently mounted subscriber. Tagging individual items by ID matters because it enables surgical invalidation: updating user 3 invalidates only the { type: 'User', id: 3 } tag, causing only queries that provided that specific tag to refetch. Without per-ID tags, you are forced to invalidate the entire 'User' LIST tag, which re-fetches all paginated queries even for unrelated changes.",
+    level: "advanced"
+  },
+  {
+    question: "How do you perform an optimistic update and handle rollback in RTK Query?",
+    answer: "Use the onQueryStarted callback on a mutation endpoint. Inside it, call dispatch(api.util.updateQueryData(endpointName, queryArg, draftFn)) to patch the cache immediately — this returns a patchResult object. Then await queryFulfilled. If the server request succeeds, the cache already has the correct data. If it fails (queryFulfilled rejects), call patchResult.undo() to revert the cache to its pre-patch state. The key constraint is that the queryArg passed to updateQueryData must exactly match the argument the query hook was called with, otherwise RTK Query cannot locate the right cache entry.",
+    level: "advanced"
+  },
+  {
+    question: "Why do you need to add usersApi.middleware to the Redux store, and what happens if you forget it?",
+    answer: "RTK Query's middleware handles the timing-based cache logic: it subscribes to store changes to know when cache entries have no more subscribers, starts the cache expiry timer (keepUnusedDataFor), manages polling intervals, and processes tag invalidation after mutations. Without the middleware, queries will still execute and results will land in the store, but the cache will never be invalidated (mutations appear to do nothing), polling will not work, subscriptions will not be tracked, and unused cache entries will never be garbage collected — leading to memory growth in long-running sessions.",
+    level: "advanced"
+  }
+]} />

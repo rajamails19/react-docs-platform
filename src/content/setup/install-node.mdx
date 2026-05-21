@@ -1,0 +1,343 @@
+---
+title: Installing Node.js for React Development
+description: Learn what Node.js is, why React needs it, and how to install and manage Node versions using nvm — the recommended approach for developers.
+category: Setup
+order: 1
+slug: setup/install-node
+difficulty: beginner
+estimatedTime: 12
+tags: [nodejs, npm, npx, nvm, installation, setup, environment, version-management]
+lastUpdated: 2024-01-15
+---
+
+# Installing Node.js
+
+Before you can create a React app, you need Node.js installed on your machine. This page explains what Node.js is, why React needs it, and the best ways to install it.
+
+## What Is Node.js?
+
+Node.js is a **JavaScript runtime** that lets you run JavaScript outside of the browser. It was built on Chrome's V8 engine and released in 2009.
+
+<Callout type="info" title="Node.js is not a programming language">
+Node.js is not a language — JavaScript is the language. Node.js is the *runtime environment* that executes JavaScript on your computer (server, terminal, build tools) rather than in a browser.
+</Callout>
+
+For React development, you almost certainly won't be writing server-side Node.js code yourself (unless you're building an API). You need Node.js for its tooling ecosystem.
+
+## Why Does React Need Node.js?
+
+React itself is a JavaScript library that runs in the browser. So why do you need Node.js at all? Because the **tools that build and run React apps** are Node.js programs:
+
+| Tool | What it does | Why you need it |
+|------|-------------|-----------------|
+| **npm** | Node Package Manager | Downloads React, TypeScript, and all dependencies |
+| **npx** | npm package runner | Runs one-off tools like `create-react-app` or `create-vite` |
+| **Vite / CRA** | Development server & bundler | Compiles JSX, bundles your app, hot-reloads changes |
+| **Babel / SWC** | JavaScript transpiler | Converts modern JS and JSX to browser-compatible code |
+| **TypeScript** | Type checker | Validates your TypeScript as you develop |
+| **ESLint** | Linter | Catches errors and enforces code style |
+| **Jest / Vitest** | Test runner | Executes your test files |
+
+All of these are Node.js programs. Without Node.js, none of them work.
+
+<MermaidDiagram chart={`
+graph LR
+    A[Your React Source Code] --> B[Vite / Webpack]
+    B --> C[Babel / SWC]
+    C --> D[Browser-ready JS Bundle]
+    E[Node.js] --> B
+    E --> C
+    E --> F[npm install]
+    F --> G[node_modules]
+    G --> B
+`} />
+
+## Checking If Node.js Is Already Installed
+
+Open your terminal and run:
+
+```bash
+node --version
+npm --version
+```
+
+If you see version numbers (e.g., `v20.11.0` and `10.2.4`), Node.js is already installed. If you get `command not found`, continue with the installation steps below.
+
+## Installation Methods
+
+There are three main ways to install Node.js. We strongly recommend **nvm** for developers.
+
+### Option 1: Official Installer (Simplest, not recommended for developers)
+
+Go to [nodejs.org](https://nodejs.org) and download the LTS installer for your OS.
+
+**Pros:** Simple, one-click  
+**Cons:** Hard to switch between Node versions, requires `sudo` for global packages on macOS/Linux, can conflict with other projects
+
+### Option 2: Homebrew (macOS only)
+
+If you're on macOS and have Homebrew installed:
+
+```bash
+brew install node
+```
+
+**Pros:** Simple, integrates with Homebrew's package management  
+**Cons:** Still makes it hard to switch Node versions across projects
+
+### Option 3: nvm — Node Version Manager (Recommended)
+
+**nvm** lets you install and switch between multiple Node.js versions. This is essential when you work on multiple projects that require different Node versions.
+
+<Callout type="tip" title="Why nvm is the professional choice">
+Different projects use different Node versions. A legacy project might require Node 16 while a new project requires Node 20. With nvm, you switch with one command: `nvm use 20`. Without it, you'd need to uninstall and reinstall Node every time.
+</Callout>
+
+## Installing nvm
+
+### macOS / Linux
+
+```bash
+# Install nvm using the official install script
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+```
+
+After installation, reload your shell profile:
+
+```bash
+# If you use bash:
+source ~/.bashrc
+
+# If you use zsh (default on modern macOS):
+source ~/.zshrc
+```
+
+Verify nvm is installed:
+
+```bash
+nvm --version
+# Expected: 0.39.7 (or similar)
+```
+
+### Windows
+
+nvm is not directly available on Windows. Use **nvm-windows** instead:
+
+1. Download the installer from [github.com/coreybutler/nvm-windows/releases](https://github.com/coreybutler/nvm-windows/releases)
+2. Download `nvm-setup.exe` from the latest release
+3. Run the installer
+4. Restart your terminal
+
+Verify:
+
+```bash
+nvm version
+```
+
+<Callout type="warning" title="Windows: use PowerShell or Windows Terminal">
+Use PowerShell or Windows Terminal as Administrator when running nvm commands on Windows. The classic Command Prompt (cmd.exe) may have path issues.
+</Callout>
+
+## Installing Node.js with nvm
+
+Once nvm is installed, install the latest LTS (Long Term Support) version of Node:
+
+```bash
+# Install the latest LTS version
+nvm install --lts
+
+# Or install a specific version
+nvm install 20
+nvm install 18.19.0
+
+# List all installed versions
+nvm list
+
+# Switch to a version
+nvm use 20
+
+# Set a default version for all new terminals
+nvm alias default 20
+```
+
+Verify the installation:
+
+```bash
+node --version
+# v20.11.0 (or whichever version you installed)
+
+npm --version
+# 10.2.4 (or similar — npm comes bundled with Node)
+
+npx --version
+# 10.2.4
+```
+
+## Managing Node Versions Per Project with .nvmrc
+
+The `.nvmrc` file tells nvm (and your teammates) which Node version a project uses. Create it in your project root:
+
+```bash
+# Inside your project directory
+echo "20" > .nvmrc
+```
+
+Now anyone who clones the project can run:
+
+```bash
+nvm use
+# Found '/path/to/project/.nvmrc' with version <20>
+# Now using node v20.11.0
+```
+
+You can also configure nvm to automatically switch versions when you `cd` into a directory with an `.nvmrc` file. Add this to your `~/.zshrc` or `~/.bashrc`:
+
+```bash
+# Auto-switch Node version when entering a directory
+autoload -U add-zsh-hook
+
+load-nvmrc() {
+  local nvmrc_path
+  nvmrc_path="$(nvm_find_nvmrc)"
+
+  if [ -n "$nvmrc_path" ]; then
+    local nvmrc_node_version
+    nvmrc_node_version=$(nvm version "$(cat "${nvmrc_path}")")
+
+    if [ "$nvmrc_node_version" = "N/A" ]; then
+      nvm install
+    elif [ "$nvmrc_node_version" != "$(nvm version)" ]; then
+      nvm use
+    fi
+  fi
+}
+
+add-zsh-hook chpwd load-nvmrc
+load-nvmrc
+```
+
+## Understanding npm vs npx
+
+Both come bundled with Node.js, but they serve different purposes:
+
+**npm (Node Package Manager)** — installs packages into your project or globally:
+
+```bash
+# Install a package into your project (saves to package.json)
+npm install react react-dom
+
+# Install a package globally (available system-wide)
+npm install -g typescript
+
+# Run a script defined in package.json
+npm run dev
+npm run build
+```
+
+**npx (npm package runner)** — runs a package without installing it permanently:
+
+```bash
+# Create a new Vite project WITHOUT globally installing create-vite
+npx create-vite my-app
+
+# Run a package once (always uses latest version)
+npx prettier --write .
+
+# Run a specific version of a tool
+npx node@18 app.js
+```
+
+<Callout type="tip" title="Prefer npx for project scaffolding tools">
+Use `npx create-vite` and `npx create-react-app` rather than globally installing them. This ensures you always use the latest version and avoids polluting your global npm with rarely-used tools.
+</Callout>
+
+## LTS vs Current — Which Version to Install?
+
+Node.js has two release lines:
+
+| Release | Description | Recommended for |
+|---------|-------------|-----------------|
+| **LTS (Long Term Support)** | Stable, supported for 30 months | Most projects, production use |
+| **Current** | Latest features, shorter support window | Experimenting, early adoption |
+
+For React development, always use the **LTS version** unless you have a specific reason to need the latest features.
+
+As of 2024, **Node 20 LTS** is the recommended choice. Node 18 LTS is also widely supported. Avoid Node 16 and below for new projects — they're at or past end of life.
+
+## Common Installation Errors
+
+### Error: `command not found: nvm`
+
+nvm was installed but your shell profile wasn't reloaded.
+
+```bash
+# Fix: manually source your profile
+source ~/.bashrc   # or ~/.zshrc
+```
+
+If that doesn't work, check that the nvm init lines were added to your profile file:
+
+```bash
+# These lines should be in ~/.zshrc or ~/.bashrc:
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+```
+
+### Error: `EACCES: permission denied` when running npm install -g
+
+This happens when Node was installed with the official installer and requires root permissions for global packages.
+
+```bash
+# Fix: switch to nvm (which installs to user home directory, no sudo needed)
+# Or: fix npm's global directory
+mkdir ~/.npm-global
+npm config set prefix '~/.npm-global'
+echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.zshrc
+source ~/.zshrc
+```
+
+### Error: Node version too old for a package
+
+```bash
+error: The engine "node" is incompatible with this module.
+Expected version ">=18.0.0". Got "16.20.0"
+```
+
+Fix: install and use a newer Node version:
+
+```bash
+nvm install 20
+nvm use 20
+```
+
+### Windows: `nvm is not recognized`
+
+Close and reopen your terminal after installing nvm-windows. If it still doesn't work, check that the nvm installation directory is in your `PATH` environment variable via System Properties → Environment Variables.
+
+<Callout type="success" title="You're set up when you see this">
+Run these three commands. If all return version numbers, you're ready to create React apps:
+
+```bash
+node --version   # v20.x.x
+npm --version    # 10.x.x
+npx --version    # 10.x.x
+```
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "Why do you need Node.js to develop React apps if React runs in the browser?",
+    answer: "React itself runs in the browser, but the build toolchain that processes your React code requires Node.js. Tools like Vite, Webpack, Babel, TypeScript, ESLint, and Jest are all Node.js programs. npm manages your project's dependencies (including React itself). Without Node.js, you cannot run these tools, install packages, or use the modern JavaScript features that get compiled down to browser-compatible code during the build process.",
+    level: "junior"
+  },
+  {
+    question: "What is the difference between npm and npx?",
+    answer: "npm (Node Package Manager) installs packages either locally into your project's node_modules or globally on your system. It's used for managing dependencies and running project scripts. npx (npm package runner) executes a package directly without permanently installing it — it downloads the package, runs it, then discards it. npx is ideal for one-off tools like `npx create-vite` which you only use once per project. This keeps your global npm clean and ensures you always use the latest version of scaffolding tools.",
+    level: "junior"
+  },
+  {
+    question: "What is nvm and why is it preferred over installing Node.js directly?",
+    answer: "nvm (Node Version Manager) allows you to install and switch between multiple Node.js versions on the same machine. It's preferred because: (1) Different projects often require different Node versions — a legacy project might need Node 16 while a new project requires Node 20. (2) nvm installs Node in your home directory, so you never need sudo for global packages. (3) You can pin a Node version per project using .nvmrc, and teammates can match your environment exactly. (4) Upgrading Node is as simple as nvm install 22 rather than uninstalling and reinstalling.",
+    level: "mid"
+  }
+]} />

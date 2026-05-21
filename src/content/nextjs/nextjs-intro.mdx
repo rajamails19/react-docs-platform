@@ -1,0 +1,464 @@
+---
+title: Introduction to Next.js
+description: Understand what Next.js is, why it exists, and how it transforms React development with SSR, SSG, file-based routing, and the App Router.
+category: Next.js Basics
+order: 1
+slug: nextjs/nextjs-intro
+difficulty: advanced
+estimatedTime: 25
+tags: [next.js, ssr, ssg, app-router, react-meta-framework, vercel, server-components]
+lastUpdated: "2024-01-15"
+---
+
+# Introduction to Next.js
+
+Next.js is the most widely adopted **React meta-framework** in production. It takes React — a UI library — and wraps it with everything you need to ship a real application: server-side rendering, static generation, file-based routing, API routes, image optimization, font loading, middleware, and edge functions. As of 2024, it powers the frontends of Vercel, TikTok, Twitch, Nike, Hulu, and thousands of other production applications.
+
+<Callout type="info">
+A **meta-framework** builds on top of another framework and makes opinionated decisions so you don't have to. Next.js is to React what Rails is to Ruby — it provides structure, conventions, and built-in solutions for cross-cutting concerns.
+</Callout>
+
+## What Problems Does Next.js Solve?
+
+Plain React (via Create React App or Vite) gives you a client-side single-page application. That's powerful for interactivity, but it comes with a set of fundamental problems that every serious application eventually hits:
+
+**1. SEO and Social Sharing**
+A blank `<div id="root"></div>` is what crawlers and social media link previewers see when they visit your React SPA. Google's crawler eventually executes JavaScript, but it's slower and less reliable than receiving fully rendered HTML. Twitter, LinkedIn, and Slack's link unfurlers don't execute JS at all — they read raw HTML for Open Graph tags.
+
+**2. Performance on First Load**
+The browser must download your entire JavaScript bundle before rendering anything meaningful. On slow connections or low-end devices, users see a white screen for seconds. The Time to First Byte (TTFB) and First Contentful Paint (FCP) metrics suffer.
+
+**3. No Server — No Database Access at Render Time**
+A React SPA can only fetch data after it has mounted in the browser. Every page load requires a network round trip: load JS → render loading skeleton → fetch data → render UI. Next.js allows components to fetch data at render time on the server, eliminating the waterfall entirely.
+
+**4. Routing Boilerplate**
+React has no built-in router. Every project installs React Router, configures routes, handles 404s, and sets up nested layouts manually. Next.js handles this through the file system.
+
+**5. API Routes**
+SPAs need a separate backend server for any server-side logic (auth, database writes, secrets). Next.js lets you write API handlers in the same repository, even in the same file system.
+
+**6. Image and Font Optimization**
+Serving large, unoptimized images is one of the most common causes of poor Core Web Vitals. Next.js's `<Image>` component automatically resizes, converts to WebP, lazy-loads, and prevents layout shift. Fonts are subset and self-hosted with zero layout shift by default.
+
+## Next.js vs Plain React: A Direct Comparison
+
+<ComparisonTable
+  columns={["Feature", "React (Vite/CRA)", "Next.js"]}
+  rows={[
+    ["Rendering", "Client-side only (CSR)", "SSR, SSG, ISR, CSR — per route"],
+    ["Routing", "Manual (React Router)", "File-system based, built-in"],
+    ["SEO", "Poor (JS must execute)", "Excellent (pre-rendered HTML)"],
+    ["Data Fetching", "useEffect after mount", "Async Server Components, fetch in layout"],
+    ["API Layer", "Separate Express/FastAPI server", "Route Handlers (app/api/route.ts)"],
+    ["Image Optimization", "Manual or third-party", "Built-in <Image> component"],
+    ["Font Loading", "Manual @font-face", "next/font (zero layout shift)"],
+    ["Code Splitting", "Manual React.lazy()", "Automatic per route"],
+    ["Bundle Analysis", "Manual setup", "Built-in with @next/bundle-analyzer"],
+    ["TypeScript", "Manual config", "Zero-config TypeScript"],
+    ["Deployment Target", "Static CDN only", "Vercel, Node.js, Docker, Edge, Static"],
+    ["Bundle Size", "All routes in one bundle", "Per-page chunks, Server Components = 0 client JS"],
+    ["Development Speed", "Fast HMR", "Turbopack-powered HMR (even faster)"],
+  ]}
+/>
+
+<Callout type="tip">
+The rendering model comparison deserves special attention. **CSR** means the browser does all the work. **SSR** means the server renders HTML on every request. **SSG** means HTML is generated once at build time. **ISR** (Incremental Static Regeneration) means HTML is generated at build time but can be refreshed on a schedule or on-demand. Next.js lets you choose per route — or even per fetch call.
+</Callout>
+
+## App Router vs Pages Router
+
+Next.js has two routing systems. Understanding both is essential because most large codebases still use Pages Router and are migrating incrementally.
+
+<ComparisonTable
+  columns={["Aspect", "Pages Router", "App Router"]}
+  rows={[
+    ["Introduced", "Next.js v1 (2016)", "Next.js 13 (2022), stable in 14"],
+    ["Directory", "pages/", "app/"],
+    ["Default component type", "Client Component", "Server Component"],
+    ["Layouts", "Manual _app.tsx wrapping", "Nested layout.tsx files"],
+    ["Data fetching", "getServerSideProps / getStaticProps", "async/await in Server Components"],
+    ["Loading states", "Manual state + conditional render", "loading.tsx (automatic Suspense)"],
+    ["Error boundaries", "Manual ErrorBoundary class", "error.tsx (automatic)"],
+    ["Streaming", "Not supported", "Built-in with Suspense"],
+    ["Server Actions", "Not supported", "Supported (form mutations)"],
+    ["Middleware", "Supported", "Supported"],
+    ["Stability", "Battle-tested, stable", "Stable since Next.js 14"],
+    ["Recommended for new projects", "No", "Yes"],
+  ]}
+/>
+
+<Callout type="warning">
+Both routers can coexist in the same project during migration. A file in `app/` and a file in `pages/` can serve different routes simultaneously. However, the same route cannot exist in both directories.
+</Callout>
+
+## Creating a Next.js Project
+
+```bash
+npx create-next-app@latest my-app
+```
+
+The CLI will ask a series of questions:
+
+```
+✔ Would you like to use TypeScript? › Yes
+✔ Would you like to use ESLint? › Yes
+✔ Would you like to use Tailwind CSS? › Yes
+✔ Would you like to use `src/` directory? › Yes
+✔ Would you like to use App Router? (recommended) › Yes
+✔ Would you like to customize the default import alias (@/*)? › No
+```
+
+<Callout type="tip">
+Always choose TypeScript and App Router for new projects in 2024. The `src/` directory is optional but keeps your source files separate from config files at the root.
+</Callout>
+
+## Project Folder Structure
+
+After creation with the recommended settings, your project looks like:
+
+```
+my-app/
+├── src/
+│   └── app/
+│       ├── layout.tsx          # Root layout (wraps every page)
+│       ├── page.tsx            # Home route: /
+│       ├── globals.css         # Global styles
+│       ├── favicon.ico
+│       ├── dashboard/
+│       │   ├── layout.tsx      # Dashboard layout (nested)
+│       │   ├── page.tsx        # /dashboard
+│       │   └── settings/
+│       │       └── page.tsx    # /dashboard/settings
+│       └── api/
+│           └── users/
+│               └── route.ts   # API route: /api/users
+├── public/
+│   ├── images/                 # Served at /images/...
+│   └── robots.txt             # Served at /robots.txt
+├── next.config.js              # Next.js configuration
+├── tailwind.config.ts
+├── tsconfig.json
+└── package.json
+```
+
+### Key Configuration: next.config.js
+
+```js
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  // Enable React strict mode for better development warnings
+  reactStrictMode: true,
+
+  // Allow images from external domains
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'cdn.example.com',
+        pathname: '/images/**',
+      },
+    ],
+  },
+
+  // Redirect old URLs
+  async redirects() {
+    return [
+      {
+        source: '/old-blog/:slug',
+        destination: '/blog/:slug',
+        permanent: true,
+      },
+    ]
+  },
+
+  // Custom HTTP headers
+  async headers() {
+    return [
+      {
+        source: '/api/:path*',
+        headers: [
+          { key: 'Access-Control-Allow-Origin', value: 'https://trusted-origin.com' },
+        ],
+      },
+    ]
+  },
+}
+
+module.exports = nextConfig
+```
+
+## Key Concepts at a Glance
+
+### Server Components (Default)
+
+In the App Router, every component is a Server Component by default. They run exclusively on the server — never in the browser. This means:
+
+- They can `await` database calls, file reads, or any async operation directly
+- They never ship their source code to the client
+- They cannot use `useState`, `useEffect`, or browser APIs
+- They reduce client-side JavaScript to zero for entire subtrees
+
+```tsx
+// app/posts/page.tsx — This is a Server Component
+// No 'use client' directive = server-only
+
+async function PostsPage() {
+  // Direct database access — no useEffect, no loading state
+  const posts = await db.query('SELECT * FROM posts ORDER BY created_at DESC')
+
+  return (
+    <ul>
+      {posts.map(post => (
+        <li key={post.id}>
+          <a href={`/posts/${post.slug}`}>{post.title}</a>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+export default PostsPage
+```
+
+### Client Components
+
+Adding `'use client'` at the top of a file marks it and all its imports as Client Components. They work exactly like React components you know from Vite/CRA: they run in the browser and can use all hooks and browser APIs.
+
+```tsx
+'use client'
+// app/components/SearchBar.tsx
+
+import { useState } from 'react'
+
+export function SearchBar({ onSearch }: { onSearch: (q: string) => void }) {
+  const [query, setQuery] = useState('')
+
+  return (
+    <input
+      value={query}
+      onChange={e => {
+        setQuery(e.target.value)
+        onSearch(e.target.value)
+      }}
+      placeholder="Search..."
+    />
+  )
+}
+```
+
+### Layouts
+
+A `layout.tsx` file wraps all pages at the same directory level and below. The root layout is mandatory and must include `<html>` and `<body>` tags.
+
+```tsx
+// app/layout.tsx — Root layout
+import type { Metadata } from 'next'
+import { Inter } from 'next/font/google'
+
+const inter = Inter({ subsets: ['latin'] })
+
+export const metadata: Metadata = {
+  title: { template: '%s | My App', default: 'My App' },
+  description: 'My awesome application',
+}
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  return (
+    <html lang="en">
+      <body className={inter.className}>
+        <nav>Global Navigation</nav>
+        {children}
+        <footer>Global Footer</footer>
+      </body>
+    </html>
+  )
+}
+```
+
+### loading.tsx and Suspense
+
+Placing a `loading.tsx` file next to a `page.tsx` automatically wraps that page in a `<Suspense>` boundary. While the Server Component is fetching data, the loading UI is shown immediately — enabling streaming.
+
+```tsx
+// app/posts/loading.tsx
+export default function PostsLoading() {
+  return (
+    <div className="space-y-4">
+      {Array.from({ length: 5 }).map((_, i) => (
+        <div key={i} className="h-16 bg-gray-200 rounded animate-pulse" />
+      ))}
+    </div>
+  )
+}
+```
+
+### error.tsx and Error Boundaries
+
+An `error.tsx` file automatically becomes an error boundary for its route segment. It must be a Client Component (errors are caught during rendering, which can happen client-side).
+
+```tsx
+'use client'
+// app/posts/error.tsx
+
+import { useEffect } from 'react'
+
+export default function PostsError({
+  error,
+  reset,
+}: {
+  error: Error & { digest?: string }
+  reset: () => void
+}) {
+  useEffect(() => {
+    console.error('Posts error:', error)
+  }, [error])
+
+  return (
+    <div className="text-center py-12">
+      <h2 className="text-xl font-semibold text-red-600">
+        Failed to load posts
+      </h2>
+      <p className="text-gray-500 mt-2">{error.message}</p>
+      <button
+        onClick={reset}
+        className="mt-4 px-4 py-2 bg-blue-600 text-white rounded"
+      >
+        Try again
+      </button>
+    </div>
+  )
+}
+```
+
+## Next.js Architecture Overview
+
+<MermaidDiagram chart={`
+flowchart TD
+    Browser["Browser Request"] --> Middleware["Middleware (Edge)"]
+    Middleware --> Router["Next.js Router"]
+    Router --> SC["Server Component Tree"]
+    SC --> DB["Database / APIs"]
+    SC --> RSC["RSC Payload + HTML Stream"]
+    RSC --> Browser2["Browser receives HTML"]
+    Browser2 --> Hydrate["Hydrate Client Components only"]
+    Hydrate --> Interactive["Interactive Page"]
+
+    subgraph "Server (Node.js / Edge)"
+        Middleware
+        Router
+        SC
+        DB
+    end
+
+    subgraph "Client (Browser)"
+        Browser
+        Browser2
+        Hydrate
+        Interactive
+    end
+`} />
+
+## When to Use Next.js vs a React SPA
+
+<Callout type="info">
+This is one of the most common architectural questions in React development. Neither is universally better — it depends on your requirements.
+</Callout>
+
+**Choose Next.js when:**
+- SEO matters (marketing pages, blogs, e-commerce, documentation)
+- You need data at render time (dashboards with real-time data, product pages)
+- You want to ship a full-stack application from one repository
+- You need ISR for high-traffic pages with semi-static content
+- Performance metrics (FCP, LCP) are important for your audience
+- Your team is building a long-term product that will grow
+
+**Choose a React SPA (Vite) when:**
+- Building a highly interactive tool that is always authenticated (Figma-like, internal dashboards)
+- The app is completely behind login (SEO is irrelevant)
+- You already have a dedicated backend and just need a UI
+- You need maximum flexibility in your deployment target (pure static CDN)
+- Building a prototype where setup speed matters more than architecture
+
+## Next.js 14 Features Overview
+
+Next.js 14 (released October 2023) is the current recommended version with these major features:
+
+**Turbopack (Stable for Development)**
+The Rust-based bundler that replaces Webpack in development. Up to 53% faster local server startup and 94% faster code updates. Enable it with `next dev --turbo`.
+
+**Server Actions (Stable)**
+Write server-side mutation functions that can be called directly from Client Components — no separate API route needed. They work with standard HTML forms and `action` attributes.
+
+```tsx
+// app/actions.ts
+'use server'
+
+import { revalidatePath } from 'next/cache'
+
+export async function createPost(formData: FormData) {
+  const title = formData.get('title') as string
+  await db.insert({ title })
+  revalidatePath('/posts')
+}
+```
+
+```tsx
+// app/new-post/page.tsx
+import { createPost } from '../actions'
+
+export default function NewPostPage() {
+  return (
+    <form action={createPost}>
+      <input name="title" placeholder="Post title" />
+      <button type="submit">Create Post</button>
+    </form>
+  )
+}
+```
+
+**Partial Prerendering (Preview)**
+A new rendering model that combines SSG speed with SSR dynamism. Static shell is served from the CDN immediately; dynamic holes stream in from the server. Zero configuration changes required — just use `<Suspense>`.
+
+**Metadata API Improvements**
+Static and dynamic metadata with full TypeScript support, including Open Graph images generated at runtime with `opengraph-image.tsx`.
+
+## Deployment
+
+Next.js's first-class deployment target is **Vercel** (the company that created Next.js). Deploying is as simple as pushing to GitHub with the Vercel integration. Features like ISR, Edge Middleware, Edge Functions, Image Optimization, and Partial Prerendering work out of the box.
+
+**Self-hosting options:**
+- **Node.js server:** `next build && next start` — works anywhere Node.js runs
+- **Docker:** Official Dockerfile in the Next.js examples repository
+- **Static export:** `output: 'export'` in next.config.js — no server required, but disables SSR, ISR, Route Handlers, and Image Optimization
+- **Other platforms:** AWS Amplify, Railway, Render, Fly.io, and Netlify all have Next.js support
+
+<Callout type="warning">
+If you self-host, you are responsible for replicating features that Vercel handles automatically: caching headers for ISR, image optimization CDN, edge function distribution, and automatic scaling. These are non-trivial to replicate correctly.
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "What is the difference between SSR and SSG in Next.js, and when would you choose each?",
+    answer: "SSR (Server-Side Rendering) generates HTML on the server for every incoming request. This means the data is always fresh, but the server must do work on every request. SSG (Static Site Generation) generates HTML once at build time and the resulting files are served from a CDN. SSG is faster and cheaper but the data can be stale. Choose SSR for pages with user-specific or highly dynamic data (shopping cart, personalized dashboard). Choose SSG for pages where content changes infrequently and is the same for all users (marketing pages, documentation, blog posts). ISR is a middle ground: generate statically, but revalidate on a schedule or on-demand.",
+    level: "mid"
+  },
+  {
+    question: "Why is the App Router's default of Server Components a significant architectural shift, and what does it mean for bundle size?",
+    answer: "In the Pages Router and plain React, every component ships its source code to the browser as JavaScript. The browser downloads, parses, and executes that JS before rendering. With Server Components as the default, components that don't need interactivity — the majority of most UIs — are rendered entirely on the server and send only HTML to the client. Their source code (including any large dependencies like markdown parsers, date libraries, or data formatting utilities) never enters the browser bundle. This can reduce client-side JavaScript by 50-90% for content-heavy applications, dramatically improving load performance and Time to Interactive.",
+    level: "senior"
+  },
+  {
+    question: "A product manager asks why you chose Next.js over a simple React Vite app. What do you say?",
+    answer: "The key factors are SEO, performance, and development velocity. First, our app has public-facing pages that must be indexed by Google and shared on social media — a client-side-only React app renders a blank page to crawlers, which would destroy our search rankings. Second, Next.js generates pre-rendered HTML so users see content immediately rather than waiting for JavaScript to download, parse, and fetch data — this directly improves our Core Web Vitals and conversion rates. Third, Next.js consolidates our frontend and API layer in one codebase, so the team moves faster without coordinating a separate backend deployment. The trade-off is a more complex hosting story, but Vercel solves that.",
+    level: "mid"
+  },
+  {
+    question: "What is Partial Prerendering (PPR) in Next.js 14 and how does it differ from ISR?",
+    answer: "ISR generates the entire page statically at build time and periodically regenerates it. Every user in the same time window gets the same cached page. PPR takes a hybrid approach within a single page: the static outer shell (header, layout, above-the-fold content) is prerendered and served from the CDN edge instantly, while dynamic holes inside Suspense boundaries stream in from the server concurrently. The user sees the page immediately, then dynamic content fills in within milliseconds — without a full server roundtrip for the entire page. ISR is all-or-nothing per page; PPR is static-and-dynamic coexisting within a single route. PPR also doesn't require time-based invalidation since static and dynamic regions are identified structurally by Suspense, not by cache headers.",
+    level: "senior"
+  }
+]} />

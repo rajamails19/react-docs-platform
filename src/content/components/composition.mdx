@@ -1,0 +1,442 @@
+---
+title: Component Composition
+description: Build flexible, reusable UIs through composition — children props, slot patterns, containment, specialization, and render props.
+category: Components
+order: 3
+slug: components/composition
+difficulty: intermediate
+estimatedTime: 18
+tags: [composition, children, slots, render props, reusability, patterns]
+lastUpdated: "2024-01-15"
+---
+
+# Component Composition
+
+**Composition** is the practice of building complex UIs by combining smaller, focused components. React is explicitly designed around composition — the official docs state that "React has a powerful composition model, and we recommend using composition instead of inheritance to reuse code between components."
+
+<Callout type="info">
+The React team has never found a use case where they would recommend creating component inheritance hierarchies. Composition covers every scenario that inheritance was used for in class-based frameworks.
+</Callout>
+
+## The `children` Prop
+
+The most fundamental composition tool is the `children` prop. Any JSX placed between a component's opening and closing tags is passed as `children`.
+
+```tsx
+interface BoxProps {
+  children: React.ReactNode
+  padding?: number
+}
+
+function Box({ children, padding = 16 }: BoxProps) {
+  return (
+    <div style={{ padding, border: '1px solid #e2e8f0', borderRadius: 8 }}>
+      {children}
+    </div>
+  )
+}
+
+// Usage — anything can go inside Box
+function App() {
+  return (
+    <Box padding={24}>
+      <h2>Title</h2>
+      <p>Body text with <strong>emphasis</strong>.</p>
+      <button>Action</button>
+    </Box>
+  )
+}
+```
+
+`React.ReactNode` is the widest type for children — it accepts strings, numbers, JSX elements, arrays, fragments, portals, `null`, `undefined`, and `boolean`.
+
+## Containment vs Specialization
+
+These are the two main forms of composition.
+
+### Containment
+
+A **container** component doesn't know its children upfront. It provides structure (layout, styling, behavior) while accepting arbitrary content.
+
+```tsx
+// Sidebar, Dialog, Tooltip — all "containers"
+function Dialog({ children, title }: { children: React.ReactNode; title: string }) {
+  return (
+    <div role="dialog" aria-label={title} className="dialog-overlay">
+      <div className="dialog-panel">
+        <h2 className="dialog-title">{title}</h2>
+        <div className="dialog-body">{children}</div>
+      </div>
+    </div>
+  )
+}
+
+// The consumer decides what goes in the body
+function ConfirmDelete({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
+  return (
+    <Dialog title="Confirm Delete">
+      <p>Are you sure? This action cannot be undone.</p>
+      <button onClick={onCancel}>Cancel</button>
+      <button onClick={onConfirm} style={{ color: 'red' }}>Delete</button>
+    </Dialog>
+  )
+}
+```
+
+### Specialization
+
+A **specialized** component is a configured version of a more generic one.
+
+```tsx
+// Generic Button
+function Button({
+  children,
+  variant = 'default',
+  size = 'md',
+  ...rest
+}: {
+  children: React.ReactNode
+  variant?: 'default' | 'primary' | 'danger'
+  size?: 'sm' | 'md' | 'lg'
+} & React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button className={`btn btn-${variant} btn-${size}`} {...rest}>
+      {children}
+    </button>
+  )
+}
+
+// Specialized versions
+function PrimaryButton(props: Omit<React.ComponentProps<typeof Button>, 'variant'>) {
+  return <Button variant="primary" {...props} />
+}
+
+function DangerButton(props: Omit<React.ComponentProps<typeof Button>, 'variant'>) {
+  return <Button variant="danger" {...props} />
+}
+```
+
+## Slot Patterns via Named Props
+
+When a component needs multiple distinct content areas, use named props instead of a single `children`.
+
+```tsx
+interface CardProps {
+  header: React.ReactNode
+  footer?: React.ReactNode
+  children: React.ReactNode    // main body slot
+  actions?: React.ReactNode
+}
+
+function Card({ header, footer, children, actions }: CardProps) {
+  return (
+    <article className="card">
+      <header className="card-header">{header}</header>
+      <main className="card-body">{children}</main>
+      {actions && <div className="card-actions">{actions}</div>}
+      {footer && <footer className="card-footer">{footer}</footer>}
+    </article>
+  )
+}
+
+// Usage
+function ProductCard({ product }: { product: Product }) {
+  return (
+    <Card
+      header={<img src={product.imageUrl} alt={product.name} />}
+      footer={<small>Last updated {product.updatedAt}</small>}
+      actions={
+        <>
+          <button>Add to Cart</button>
+          <button>Wishlist</button>
+        </>
+      }
+    >
+      <h3>{product.name}</h3>
+      <p>{product.description}</p>
+      <strong>${product.price}</strong>
+    </Card>
+  )
+}
+```
+
+<Callout type="tip">
+Named slots give consumers explicit, self-documenting control over each region of the component. This pattern is sometimes called the **"compound slot"** pattern and is used by virtually every serious UI library (Radix UI, Headless UI, shadcn/ui).
+</Callout>
+
+## Building a Layout with Composition
+
+Here is a full page layout built entirely from composed pieces:
+
+```tsx
+// Atomic layout primitives
+function Stack({ children, gap = 16 }: { children: React.ReactNode; gap?: number }) {
+  return <div style={{ display: 'flex', flexDirection: 'column', gap }}>{children}</div>
+}
+
+function Row({ children, gap = 8, align = 'center' }: {
+  children: React.ReactNode
+  gap?: number
+  align?: React.CSSProperties['alignItems']
+}) {
+  return <div style={{ display: 'flex', alignItems: align, gap }}>{children}</div>
+}
+
+// Page-level layout
+interface AppLayoutProps {
+  sidebar: React.ReactNode
+  header: React.ReactNode
+  children: React.ReactNode
+  footer?: React.ReactNode
+}
+
+function AppLayout({ sidebar, header, children, footer }: AppLayoutProps) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr', minHeight: '100vh' }}>
+      <aside style={{ gridRow: '1 / -1', borderRight: '1px solid #e2e8f0' }}>
+        {sidebar}
+      </aside>
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
+        <header style={{ borderBottom: '1px solid #e2e8f0', padding: '12px 24px' }}>
+          {header}
+        </header>
+        <main style={{ flex: 1, padding: 24 }}>{children}</main>
+        {footer && (
+          <footer style={{ borderTop: '1px solid #e2e8f0', padding: '12px 24px' }}>
+            {footer}
+          </footer>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// Assemble the full app
+function App() {
+  return (
+    <AppLayout
+      sidebar={<Navigation />}
+      header={<Row><Logo /><SearchBar /><UserMenu /></Row>}
+      footer={<p>© 2024 MyApp</p>}
+    >
+      <Stack gap={24}>
+        <PageTitle>Dashboard</PageTitle>
+        <StatsRow />
+        <RecentActivity />
+      </Stack>
+    </AppLayout>
+  )
+}
+```
+
+## Render Props Pattern
+
+The **render prop** pattern passes a function as a prop. The component calls that function with internal data, giving the consumer control over what gets rendered.
+
+```tsx
+interface MouseTrackerProps {
+  render: (position: { x: number; y: number }) => React.ReactNode
+}
+
+function MouseTracker({ render }: MouseTrackerProps) {
+  const [position, setPosition] = React.useState({ x: 0, y: 0 })
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    setPosition({ x: e.clientX, y: e.clientY })
+  }
+
+  return (
+    <div onMouseMove={handleMouseMove} style={{ height: 300, background: '#f7fafc' }}>
+      {render(position)}
+    </div>
+  )
+}
+
+// Usage
+function App() {
+  return (
+    <MouseTracker
+      render={({ x, y }) => (
+        <p>Mouse: {x}, {y}</p>
+      )}
+    />
+  )
+}
+```
+
+### Children as a Function
+
+A variant where the render prop is the `children` prop itself:
+
+```tsx
+interface DataLoaderProps<T> {
+  url: string
+  children: (data: T | null, loading: boolean, error: Error | null) => React.ReactNode
+}
+
+function DataLoader<T>({ url, children }: DataLoaderProps<T>) {
+  const [data, setData] = React.useState<T | null>(null)
+  const [loading, setLoading] = React.useState(true)
+  const [error, setError] = React.useState<Error | null>(null)
+
+  React.useEffect(() => {
+    setLoading(true)
+    fetch(url)
+      .then(r => r.json())
+      .then(setData)
+      .catch(setError)
+      .finally(() => setLoading(false))
+  }, [url])
+
+  return <>{children(data, loading, error)}</>
+}
+
+// Usage
+function UserList() {
+  return (
+    <DataLoader<User[]> url="/api/users">
+      {(users, loading, error) => {
+        if (loading) return <Spinner />
+        if (error) return <ErrorMessage error={error} />
+        return <ul>{users!.map(u => <li key={u.id}>{u.name}</li>)}</ul>
+      }}
+    </DataLoader>
+  )
+}
+```
+
+<Callout type="info">
+The render prop pattern predates hooks. Today, the same logic would more naturally be expressed as a custom hook (`useDataLoader`). However, render props remain valid when you specifically need to control rendering location or when integrating with non-hook consumers.
+</Callout>
+
+## When to Extract a Component
+
+Extract a component when any of these are true:
+
+1. **Too large** — the component has grown past ~150 lines and is hard to scan.
+2. **Repeated** — the same JSX block appears 2+ times (even with minor differences).
+3. **Too complex** — a section has its own state, handlers, and distinct responsibility.
+4. **Reusable** — other parts of the app would benefit from the same piece.
+5. **Testing** — isolating behavior makes unit testing far easier.
+
+```tsx
+// ❌ Everything in one component
+function ProductPage() {
+  const [quantity, setQuantity] = useState(1)
+  const [selectedSize, setSelectedSize] = useState('M')
+  const [reviews, setReviews] = useState<Review[]>([])
+
+  return (
+    <div>
+      {/* 200+ lines of JSX for images, details, size picker, quantity, reviews */}
+    </div>
+  )
+}
+
+// ✅ Composed from focused components
+function ProductPage() {
+  return (
+    <div>
+      <ProductImageGallery />
+      <ProductDetails>
+        <SizePicker />
+        <QuantitySelector />
+        <AddToCartButton />
+      </ProductDetails>
+      <ReviewSection />
+    </div>
+  )
+}
+```
+
+## Composition vs Inheritance
+
+<ComparisonTable
+  columns={["Aspect", "Composition", "Inheritance"]}
+  rows={[
+    ["React recommendation", "✅ Preferred", "❌ Not recommended"],
+    ["Code sharing mechanism", "Props, children, hooks", "extends BaseComponent"],
+    ["Flexibility", "Consumer controls behavior", "Subclass overrides methods"],
+    ["Multiple behaviors", "Combine multiple components", "Multiple inheritance not possible in JS"],
+    ["Testing", "Test each piece in isolation", "Must test entire hierarchy"],
+    ["Refactoring", "Replace individual pieces", "Changes ripple through hierarchy"],
+    ["Readability", "Data flows are explicit", "Logic may be hidden in parent class"],
+    ["TypeScript", "Clear prop interfaces", "Inherited props mix with own props"],
+  ]}
+/>
+
+<LiveEditor code={`import { useState } from 'react'
+
+// Reusable Modal container
+function Modal({ children, title, onClose }) {
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      zIndex: 100
+    }}>
+      <div style={{
+        background: 'white', borderRadius: 12, padding: 24,
+        minWidth: 320, maxWidth: 480, width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+          <h2 style={{ margin: 0, fontSize: 18 }}>{title}</h2>
+          <button onClick={onClose} style={{ border: 'none', background: 'none', fontSize: 20, cursor: 'pointer' }}>×</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+// Specialized modal using composition
+function ConfirmModal({ onConfirm, onCancel, message }) {
+  return (
+    <Modal title="Confirm Action" onClose={onCancel}>
+      <p style={{ marginBottom: 20 }}>{message}</p>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <button onClick={onCancel} style={{ padding: '8px 16px' }}>Cancel</button>
+        <button onClick={onConfirm} style={{ padding: '8px 16px', background: '#ef4444', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Confirm</button>
+      </div>
+    </Modal>
+  )
+}
+
+export default function App() {
+  const [open, setOpen] = useState(false)
+  const [confirmed, setConfirmed] = useState(false)
+
+  return (
+    <div style={{ padding: 32, fontFamily: 'sans-serif' }}>
+      <button onClick={() => setOpen(true)} style={{ padding: '10px 20px', cursor: 'pointer' }}>
+        Delete Account
+      </button>
+      {confirmed && <p style={{ color: 'green', marginTop: 12 }}>Action confirmed!</p>}
+      {open && (
+        <ConfirmModal
+          message="Are you sure you want to delete your account? This cannot be undone."
+          onConfirm={() => { setConfirmed(true); setOpen(false) }}
+          onCancel={() => setOpen(false)}
+        />
+      )}
+    </div>
+  )
+}`} />
+
+<InterviewQA questions={[
+  {
+    question: "Why does the React team recommend composition over inheritance?",
+    answer: "JavaScript's prototype chain only allows single inheritance, which limits flexibility. Composition is more flexible — a component can accept and delegate to any number of other components via props. It keeps data flow explicit (props going down), avoids hidden behavior from parent classes, and makes each component easier to test and reason about in isolation. The React team has explicitly stated they have never needed inheritance hierarchies in their own codebases.",
+    level: "intermediate"
+  },
+  {
+    question: "What is the difference between the children prop and named slot props?",
+    answer: "The children prop provides a single anonymous slot — any JSX between opening and closing tags. Named slot props (like header, footer, sidebar) provide multiple distinct slots with explicit names. Named slots are more self-documenting and prevent ambiguity about where content ends up. Use children for the primary content area and named props for secondary regions like headers, footers, and action areas.",
+    level: "beginner"
+  },
+  {
+    question: "When would you choose a render prop over a custom hook for sharing stateful logic?",
+    answer: "Custom hooks are almost always preferable for sharing stateful logic because they are simpler, compose naturally, and don't add extra DOM nodes. However, render props remain useful when: (1) the shared logic must control the rendering location (e.g., a virtualized list that renders items in a specific container); (2) integrating with class components that can't use hooks; (3) when the consumer needs to decide what JSX to render based on internal state that the component provides, and extracting a hook would be awkward.",
+    level: "advanced"
+  }
+]} />

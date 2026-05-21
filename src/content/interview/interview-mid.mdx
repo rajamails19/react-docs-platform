@@ -1,0 +1,95 @@
+---
+title: Mid-Level Interview Questions
+description: React interview questions for mid-level engineers — performance, state management, TypeScript, and architecture.
+category: Interview Prep
+order: 2
+slug: interview/interview-mid
+difficulty: intermediate
+estimatedTime: 25
+tags: [interview, mid-level, performance, state management, React Query, TypeScript, architecture]
+lastUpdated: 2024-01-15
+---
+
+# Mid-Level React Interview Questions
+
+These questions test whether you understand React deeply — not just how to use it, but why it works the way it does. Expect these in 2-5 year experience roles.
+
+## Performance
+
+<InterviewQA questions={[
+  {
+    question: "How does React decide when to re-render a component?",
+    answer: "A component re-renders when: (1) Its state changes (useState setter called). (2) Its parent re-renders (by default, all children re-render with parent). (3) Its context value changes (any component using useContext re-renders). (4) Props change (by reference for objects/functions, by value for primitives). Note: React.memo wraps a component to skip re-renders if props haven't changed by shallow comparison. useCallback and useMemo stabilize references to prevent unnecessary child re-renders.",
+    level: "mid"
+  },
+  {
+    question: "What is the difference between useMemo and useCallback?",
+    answer: "useMemo memoizes the result of a computation: const value = useMemo(() => expensiveCalc(a, b), [a, b]). useCallback memoizes a function: const fn = useCallback(() => doSomething(a), [a]). They're equivalent — useCallback(fn, deps) is useMemo(() => fn, deps). Use useMemo for expensive calculations whose result you want to cache. Use useCallback for functions passed to React.memo children or used in useEffect dependency arrays. Don't use either preemptively — profile first.",
+    level: "mid"
+  },
+  {
+    question: "What is React.memo and when should you use it?",
+    answer: "React.memo is a HOC that prevents re-renders when props haven't changed (shallow comparison). Without it, every parent re-render causes all children to re-render. Use React.memo when: (1) The component is expensive to render. (2) It receives the same props frequently. (3) Parent re-renders often for unrelated reasons. Don't use it on: simple components (overhead > savings), components that always get different props, or every component by default (premature optimization). The memo check itself has a cost.",
+    level: "mid"
+  }
+]} />
+
+## State Management
+
+<InterviewQA questions={[
+  {
+    question: "When would you choose Redux vs Context API vs React Query?",
+    answer: "Context API: best for global UI state that rarely changes — theme, auth user, locale. Re-renders all consumers on change, so don't use for frequently updating data. Redux/Zustand: best for complex shared state with many updates, time-travel debugging needs, or when multiple disconnected components need to update the same state. React Query/SWR: best for server state — data that lives on a server, needs caching, background refetching, optimistic updates, or synchronization. The key insight: most state management problems are actually server state problems — React Query solves them better than Redux.",
+    level: "mid"
+  },
+  {
+    question: "What is the difference between server state and client state?",
+    answer: "Server state is data that lives on a server and is fetched over the network — it's asynchronous, can be stale, shared with other users, and needs caching/synchronization. Client state is local UI state that exists only in the browser — toggle open/closed, form input values, selected tab. The common mistake is managing server state with useState/useEffect — you end up reinventing caching, deduplication, background refetching, and error handling. React Query and SWR are built specifically for server state. Redux is for client state (or was designed for a time when the distinction wasn't clear).",
+    level: "mid"
+  }
+]} />
+
+## Architecture
+
+<InterviewQA questions={[
+  {
+    question: "How do you structure a large React application?",
+    answer: "Feature-based folder structure (recommended for large apps): each feature folder contains its components, hooks, types, and tests. Shared code goes in a 'shared' or 'common' folder. Layer boundaries: (1) UI layer — components (dumb/presentational), layouts. (2) Feature layer — pages, feature-specific components, local state. (3) Data layer — React Query hooks, API client functions. (4) State layer — Zustand/Redux stores for shared UI state. Avoid barrel files (index.ts re-exports) in large apps — they cause circular dependencies and slow bundlers.",
+    level: "mid"
+  },
+  {
+    question: "What is code splitting and how do you implement it in React?",
+    answer: "Code splitting breaks your bundle into smaller chunks that load on demand. Without it, users download all JavaScript upfront — even code for routes they'll never visit. React.lazy() and Suspense enable route-based splitting: const Dashboard = React.lazy(() => import('./Dashboard')). Wrap with <Suspense fallback={<Loading />}>. Vite and Webpack split at dynamic import() boundaries automatically. Also split heavy libraries: don't import Recharts into the main bundle if only the analytics page uses it — import it inside the page component dynamically.",
+    level: "mid"
+  },
+  {
+    question: "How do you handle authentication in a React SPA?",
+    answer: "Common approach: (1) On login, receive a JWT or session token from the backend. (2) Store it in an httpOnly cookie (more secure) or localStorage (accessible to JS). (3) Send it with every API request via Authorization header or cookie. (4) Decode the token to get user info — store in Context or Zustand. (5) Protect routes with a PrivateRoute component that redirects to login if not authenticated. (6) Handle token refresh — intercept 401 responses with Axios interceptor, refresh the token, and retry the request. Never store sensitive user data in JWT on the frontend — JWT is signed but not encrypted.",
+    level: "mid"
+  }
+]} />
+
+## React Internals
+
+<InterviewQA questions={[
+  {
+    question: "What is reconciliation and how does React's diffing algorithm work?",
+    answer: "Reconciliation is React's process of updating the DOM efficiently. When state changes, React renders a new component tree and compares it to the previous tree (diffing). React's diffing heuristics: (1) Different element types — React tears down the old tree and builds a new one from scratch. (2) Same element type — React updates the existing DOM node's attributes. (3) Lists — uses key props to match old and new items. React assumes that components at the same position in the tree are the same type across renders, so swapping components by type at the same level triggers a full remount. Full tree comparison is O(n³), React's heuristics reduce it to O(n).",
+    level: "mid"
+  },
+  {
+    question: "What is the useLayoutEffect hook and when do you need it?",
+    answer: "useLayoutEffect is identical to useEffect but fires synchronously after DOM mutations and before the browser paints. Use it when you need to read DOM measurements (getBoundingClientRect, offsetWidth) or mutate the DOM before the user sees anything — to prevent visual flicker. Example: a tooltip that needs to know its position relative to the trigger element must use useLayoutEffect to measure and position itself before paint. For everything else (data fetching, subscriptions, timers), use useEffect — it runs asynchronously and doesn't block painting.",
+    level: "mid"
+  }
+]} />
+
+## Summary
+
+<Callout type="success" title="Key Takeaways for Mid-Level Interviews">
+- Understand why components re-render — state change, parent re-render, context change
+- Know when to use React.memo, useMemo, useCallback — and when NOT to (premature optimization)
+- Distinguish server state (React Query) from client state (Context/Zustand/Redux)
+- Be able to describe a feature-based folder structure and explain the tradeoffs
+- Know the difference between useEffect (async, after paint) and useLayoutEffect (sync, before paint)
+</Callout>

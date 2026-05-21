@@ -1,0 +1,457 @@
+---
+title: State Basics
+description: Understand what component state is, how it differs from props, and how to manage local state effectively with useState in React 18.
+category: State
+order: 1
+slug: state/state-basics
+difficulty: beginner
+estimatedTime: 20
+tags: [state, useState, props, re-render, React 18, state batching, beginner]
+lastUpdated: "2024-01-15"
+---
+
+# State Basics
+
+State is the memory of a React component. It is data that can change over time — and when it changes, React re-renders the component to reflect the new reality on screen.
+
+Understanding state is the single most important mental model shift when learning React. Everything else — context, reducers, derived state, even the entire hook system — builds on this foundation.
+
+## What Is Component State?
+
+A component's state is **local, mutable data** that the component owns and controls. It answers the question: *"What does this component need to remember between renders?"*
+
+```tsx
+import { useState } from 'react'
+
+function LightSwitch() {
+  const [isOn, setIsOn] = useState(false)
+
+  return (
+    <button onClick={() => setIsOn(prev => !prev)}>
+      The light is {isOn ? 'ON' : 'OFF'}
+    </button>
+  )
+}
+```
+
+Three things are happening here:
+1. `useState(false)` registers a piece of state with the initial value `false`.
+2. `isOn` is the current value of that state for this render.
+3. `setIsOn` is the function that schedules a state update and triggers a re-render.
+
+<Callout type="info">
+State is not a regular JavaScript variable. Regular variables reset to their initial value every render. React stores state outside the component function so it survives re-renders — and when you call the setter, React re-runs your component function with the updated value.
+</Callout>
+
+## State vs Props
+
+Props and state are both plain JavaScript values that influence what a component renders, but they serve very different purposes.
+
+<ComparisonTable
+  columns={["", "State", "Props"]}
+  rows={[
+    ["Who owns it?", "The component itself", "The parent component"],
+    ["Who can change it?", "Only the component (via setter)", "Only the parent (by passing new values)"],
+    ["Mutable?", "Yes — via setState functions", "No — read-only inside the component"],
+    ["Where does it live?", "Local to the component instance", "Passed down from outside"],
+    ["Triggers re-render?", "Yes, when updated via setter", "Yes, when parent re-renders with new values"],
+    ["Typical examples", "form inputs, toggle, fetched data", "configuration, display data, callbacks"],
+  ]}
+/>
+
+The key insight: **props are like function arguments** (data coming in), while **state is like local variables that persist** (data owned by the component).
+
+```tsx
+// Props: parent controls the data
+function Greeting({ name }: { name: string }) {
+  return <h1>Hello, {name}!</h1>
+}
+
+// State: component controls the data
+function NameForm() {
+  const [name, setName] = useState('')
+  return (
+    <input
+      value={name}
+      onChange={e => setName(e.target.value)}
+      placeholder="Enter your name"
+    />
+  )
+}
+```
+
+## The useState Hook
+
+`useState` is how you declare state in a functional component.
+
+```tsx
+const [value, setValue] = useState(initialValue)
+```
+
+- `value` — the current state value (read-only in this render)
+- `setValue` — a function to request a state update
+- `initialValue` — the value used only on the first render
+
+### Common State Types
+
+```tsx
+// Primitive values
+const [count, setCount]     = useState(0)
+const [name, setName]       = useState('')
+const [isOpen, setIsOpen]   = useState(false)
+
+// Arrays
+const [items, setItems]     = useState<string[]>([])
+
+// Objects
+const [user, setUser]       = useState({ name: '', email: '' })
+
+// Null / undefined for async data
+const [data, setData]       = useState<User | null>(null)
+```
+
+### Updating State Correctly
+
+Always use the functional updater form when the new state depends on the previous state:
+
+```tsx
+// ❌ Can lead to stale state in concurrent mode or when called multiple times
+setCount(count + 1)
+
+// ✅ Always safe — React passes the latest value to the function
+setCount(prev => prev + 1)
+
+// ❌ Mutating state directly — this does NOT trigger a re-render
+user.name = 'Alice'
+setUser(user)
+
+// ✅ Create a new object to trigger re-render
+setUser(prev => ({ ...prev, name: 'Alice' }))
+```
+
+<Callout type="warning">
+Never mutate state directly. React compares previous and next state by reference. If you mutate an existing object or array and pass it to the setter, React sees the same reference and skips the re-render.
+</Callout>
+
+## The State Update Cycle
+
+<MermaidDiagram chart={`
+sequenceDiagram
+  participant U as User Action
+  participant C as Component
+  participant R as React Scheduler
+  participant D as DOM
+
+  U->>C: Triggers event (click, change, etc.)
+  C->>R: Calls setState(newValue)
+  Note over R: Batches updates,<br/>schedules re-render
+  R->>C: Re-invokes component function
+  C->>R: Returns new JSX tree
+  R->>R: Reconciles old vs new virtual DOM
+  R->>D: Commits minimal DOM changes
+  D->>U: User sees updated UI
+`} caption="The complete state update cycle in React" />
+
+## When to Introduce State
+
+Not every value in a component needs to be state. Before reaching for `useState`, ask:
+
+1. **Does it change over time?** If not, it is a constant.
+2. **Does it affect what the component renders?** If not, use a ref or a regular variable.
+3. **Can it be computed from existing state or props?** If yes, compute it — do not store it in state.
+
+```tsx
+// ❌ Over-using state
+function ProductList({ products }) {
+  const [sortedProducts, setSortedProducts] = useState(products)  // derived!
+  const [totalCount, setTotalCount]         = useState(0)          // derived!
+
+  // Now you have to keep these in sync manually...
+}
+
+// ✅ Minimal state, compute what you can
+function ProductList({ products }) {
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
+
+  // Derived on every render — always in sync, no extra state
+  const sortedProducts = [...products].sort((a, b) =>
+    sortOrder === 'asc' ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name)
+  )
+  const totalCount = products.length
+}
+```
+
+## What Makes Good State
+
+Good state is the **minimal set of changing data** your UI needs to function. Here is how to identify it:
+
+| Category | Examples | Why it is good state |
+|---|---|---|
+| User inputs | text field value, selected option | Changes on user interaction |
+| Toggle values | modal open/closed, tab selected | Binary or enum-style switches |
+| Async data | fetched users, loading flag, error | Arrives from outside, changes over time |
+| UI flags | hover state, focus, animation step | Drives UI appearance |
+
+What is **not** state:
+- Constants and configuration (use module-level variables)
+- Data computable from props or other state (compute in render)
+- Ref values that don't affect rendering (use `useRef`)
+
+## State Batching in React 18
+
+In React 18, **all state updates are automatically batched** — even those inside `setTimeout`, `Promise` callbacks, and native event handlers. This means multiple `setState` calls in one event result in a single re-render.
+
+```tsx
+function BatchingDemo() {
+  const [count, setCount] = useState(0)
+  const [flag, setFlag]   = useState(false)
+
+  const handleClick = () => {
+    // React 18: both updates are batched → ONE re-render
+    setCount(c => c + 1)
+    setFlag(f => !f)
+  }
+
+  const handleAsync = () => {
+    setTimeout(() => {
+      // React 18: also batched! (React 17 would have caused TWO re-renders)
+      setCount(c => c + 1)
+      setFlag(f => !f)
+    }, 1000)
+  }
+
+  return (
+    <div>
+      <p>Count: {count} | Flag: {String(flag)}</p>
+      <button onClick={handleClick}>Sync update</button>
+      <button onClick={handleAsync}>Async update (batched in React 18)</button>
+    </div>
+  )
+}
+```
+
+<Callout type="tip">
+If you ever need to force separate renders (rare), use `ReactDOM.flushSync(() => { setState(...) })`. But in practice, batching is almost always what you want — it makes your UI updates faster and avoids intermediate inconsistent states.
+</Callout>
+
+## Practical Examples
+
+### Counter
+
+<LiveEditor code={`import { useState } from 'react'
+
+function Counter() {
+  const [count, setCount] = useState(0)
+
+  return (
+    <div style={{ textAlign: 'center', fontFamily: 'sans-serif', padding: 32 }}>
+      <h2 style={{ fontSize: 64, margin: '0 0 24px', color: count < 0 ? '#ef4444' : count > 0 ? '#22c55e' : '#6b7280' }}>
+        {count}
+      </h2>
+      <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+        <button
+          onClick={() => setCount(prev => prev - 1)}
+          style={{ padding: '8px 20px', fontSize: 20, borderRadius: 8, border: '1px solid #ddd', cursor: 'pointer' }}
+        >
+          −
+        </button>
+        <button
+          onClick={() => setCount(0)}
+          style={{ padding: '8px 20px', fontSize: 14, borderRadius: 8, border: '1px solid #ddd', cursor: 'pointer', color: '#888' }}
+        >
+          Reset
+        </button>
+        <button
+          onClick={() => setCount(prev => prev + 1)}
+          style={{ padding: '8px 20px', fontSize: 20, borderRadius: 8, border: '1px solid #ddd', cursor: 'pointer' }}
+        >
+          +
+        </button>
+      </div>
+    </div>
+  )
+}
+
+export default Counter`} />
+
+### Toggle (Modal / Accordion)
+
+<LiveEditor code={`import { useState } from 'react'
+
+function Accordion({ title, children }) {
+  const [isOpen, setIsOpen] = useState(false)
+
+  return (
+    <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, marginBottom: 8, fontFamily: 'sans-serif' }}>
+      <button
+        onClick={() => setIsOpen(prev => !prev)}
+        style={{
+          width: '100%', padding: '12px 16px', textAlign: 'left',
+          background: 'none', border: 'none', cursor: 'pointer',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          fontSize: 16, fontWeight: 600
+        }}
+      >
+        {title}
+        <span style={{ transform: isOpen ? 'rotate(180deg)' : 'rotate(0)', transition: '0.2s' }}>▾</span>
+      </button>
+      {isOpen && (
+        <div style={{ padding: '0 16px 16px', color: '#4b5563', lineHeight: 1.6 }}>
+          {children}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default function FAQ() {
+  return (
+    <div style={{ maxWidth: 480, margin: '20px auto' }}>
+      <Accordion title="What is React state?">
+        State is local, mutable data owned by a component. When state changes, React re-renders the component.
+      </Accordion>
+      <Accordion title="When should I use useState?">
+        Use useState when a value changes over time and that change should be reflected in the UI.
+      </Accordion>
+      <Accordion title="What is the difference between state and props?">
+        Props come from the parent and are read-only. State is owned by the component and can be updated via its setter function.
+      </Accordion>
+    </div>
+  )
+}`} />
+
+### Controlled Input
+
+```tsx
+function NameForm() {
+  const [name, setName]   = useState('')
+  const [email, setEmail] = useState('')
+  const [submitted, setSubmitted] = useState(false)
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    setSubmitted(true)
+  }
+
+  if (submitted) {
+    return <p>Thanks, {name}! We will email {email}.</p>
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <input
+        value={name}
+        onChange={e => setName(e.target.value)}
+        placeholder="Your name"
+        required
+      />
+      <input
+        type="email"
+        value={email}
+        onChange={e => setEmail(e.target.value)}
+        placeholder="Your email"
+        required
+      />
+      <button type="submit">Submit</button>
+    </form>
+  )
+}
+```
+
+## Common Beginner Mistakes
+
+### 1. Reading state immediately after setting it
+
+```tsx
+// ❌ count is still the OLD value on this line
+const handleClick = () => {
+  setCount(count + 1)
+  console.log(count)  // logs old value!
+}
+
+// ✅ Use a local variable if you need the new value right away
+const handleClick = () => {
+  const next = count + 1
+  setCount(next)
+  console.log(next)   // correct
+}
+```
+
+### 2. Storing derived data in state
+
+```tsx
+// ❌ items and filteredItems can get out of sync
+const [items, setItems]               = useState(initialItems)
+const [filteredItems, setFilteredItems] = useState(initialItems)
+const [query, setQuery]               = useState('')
+
+// ✅ Compute filteredItems in render
+const [items, setItems] = useState(initialItems)
+const [query, setQuery] = useState('')
+const filteredItems     = items.filter(i => i.name.includes(query))
+```
+
+### 3. Mutating objects or arrays in state
+
+```tsx
+// ❌ Mutates existing array — React won't detect the change
+const addItem = (item) => {
+  items.push(item)
+  setItems(items)        // same reference!
+}
+
+// ✅ Creates a new array — React detects the change
+const addItem = (item) => {
+  setItems(prev => [...prev, item])
+}
+```
+
+### 4. Initializing state from props incorrectly
+
+```tsx
+// ❌ Only used on first render — won't update if prop changes
+function ProfileCard({ user }) {
+  const [name, setName] = useState(user.name)
+  // ...
+}
+
+// ✅ If the component is meant to edit a copy, document the intent
+//    and use a key prop on the parent to reset when user changes
+```
+
+<Callout type="danger">
+Passing props as initial state creates a **derived state anti-pattern**. If the parent updates `user.name`, the component will not reflect the change because `useState` only uses the initial value once. Either derive the value directly from props, or give the component a `key` prop so it remounts when the source changes.
+</Callout>
+
+## Summary
+
+- State is **local, mutable data** owned by a component.
+- Props are **external, read-only** data passed from a parent.
+- Use `useState(initialValue)` to declare a piece of state.
+- Always use the **functional updater** when new state depends on old state.
+- Keep state **minimal** — compute derived values in render instead of storing them.
+- React 18 **batches all state updates** automatically for better performance.
+- Never mutate state directly — always create new objects/arrays.
+
+<InterviewQA questions={[
+  {
+    question: "What is the difference between state and props in React?",
+    answer: "Props are read-only data passed from a parent component — the child cannot change them directly. State is local, mutable data owned and managed by the component itself via useState (or useReducer). Both cause re-renders when they change, but state changes are initiated internally by the component while prop changes come from the parent re-rendering with new values.",
+    level: "beginner"
+  },
+  {
+    question: "Why should you use the functional updater form `setState(prev => ...)` instead of `setState(value + 1)`?",
+    answer: "The functional updater form receives the guaranteed latest state value from React's queue. When you write setState(count + 1) directly, 'count' is captured from the closure at render time. If multiple state updates are batched or an update is scheduled asynchronously, 'count' may already be stale. The functional form avoids this entirely because React always passes the most recent committed value as the argument.",
+    level: "beginner"
+  },
+  {
+    question: "What is state batching in React 18 and why does it matter?",
+    answer: "State batching means React collects multiple setState calls that happen in the same event loop tick and applies them in a single re-render instead of one render per call. In React 17, batching only happened inside React synthetic event handlers. React 18 extends automatic batching to all contexts including setTimeout, Promise callbacks, and native DOM event listeners. This reduces unnecessary renders and prevents intermediate inconsistent UI states where some state has updated but other related state has not yet.",
+    level: "intermediate"
+  },
+  {
+    question: "What happens when you mutate state directly instead of using the setter function?",
+    answer: "React uses shallow reference equality to decide whether to re-render. If you mutate an existing object or array and pass that same reference to the setter, React sees no change and skips the re-render. The UI becomes stale and out of sync with your data. Additionally, React's concurrent features and time-slicing rely on immutability to safely roll back and replay renders — mutations break those guarantees. Always create new objects or arrays when updating state.",
+    level: "intermediate"
+  }
+]} />

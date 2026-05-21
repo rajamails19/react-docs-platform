@@ -1,0 +1,197 @@
+---
+title: Jest + React Testing Library
+description: Test React components with confidence using Jest and React Testing Library — the industry standard for unit and integration tests.
+category: Testing
+order: 1
+slug: testing/jest-rtl
+difficulty: intermediate
+estimatedTime: 15
+tags: [testing, jest, React Testing Library, RTL, unit tests, integration tests]
+lastUpdated: 2024-01-15
+---
+
+# Jest + React Testing Library
+
+React Testing Library (RTL) tests components the way users interact with them — through the DOM, not implementation details. Jest provides the test runner, assertions, and mocking.
+
+## Setup
+
+```bash
+npm install -D jest @testing-library/react @testing-library/jest-dom @testing-library/user-event
+npm install -D jest-environment-jsdom @types/jest ts-jest
+```
+
+```ts
+// jest.config.ts
+export default {
+  preset: 'ts-jest',
+  testEnvironment: 'jsdom',
+  setupFilesAfterFramework: ['@testing-library/jest-dom'],
+}
+```
+
+## Your First Test
+
+```tsx
+// Button.tsx
+function Button({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+  return <button onClick={onClick}>{children}</button>
+}
+
+// Button.test.tsx
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { Button } from './Button'
+
+test('calls onClick when clicked', async () => {
+  const handleClick = jest.fn()
+  render(<Button onClick={handleClick}>Save</Button>)
+
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+  expect(handleClick).toHaveBeenCalledTimes(1)
+})
+```
+
+## Queries (Finding Elements)
+
+RTL's philosophy: query by what the user sees, not by implementation details.
+
+```tsx
+// ✅ Accessible queries (preferred)
+screen.getByRole('button', { name: 'Submit' })   // by ARIA role + name
+screen.getByLabelText('Email')                    // by form label
+screen.getByPlaceholderText('Search...')          // by placeholder
+screen.getByText('Hello World')                   // by visible text
+screen.getByAltText('Profile photo')              // by img alt
+
+// ⚠️ Use sparingly
+screen.getByTestId('submit-btn')   // data-testid — last resort
+
+// ❌ Avoid (implementation details)
+container.querySelector('.submit-btn')  // CSS class — changes break tests
+```
+
+## Async Testing
+
+```tsx
+// Component that fetches data
+function UserList() {
+  const [users, setUsers] = useState<User[]>([])
+  useEffect(() => {
+    fetch('/api/users').then(r => r.json()).then(setUsers)
+  }, [])
+  return <ul>{users.map(u => <li key={u.id}>{u.name}</li>)}</ul>
+}
+
+// Test with mocked fetch
+test('displays users after loading', async () => {
+  // Mock the fetch call
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: () => Promise.resolve([{ id: 1, name: 'Alice' }, { id: 2, name: 'Bob' }]),
+  } as Response)
+
+  render(<UserList />)
+
+  // findBy* waits for the element to appear (async)
+  expect(await screen.findByText('Alice')).toBeInTheDocument()
+  expect(screen.getByText('Bob')).toBeInTheDocument()
+})
+```
+
+## Testing with Context
+
+```tsx
+// Helper wrapper to provide context
+function renderWithProviders(ui: React.ReactElement) {
+  return render(
+    <ThemeProvider>
+      <AuthProvider>
+        {ui}
+      </AuthProvider>
+    </ThemeProvider>
+  )
+}
+
+test('shows admin panel for admin users', async () => {
+  // Mock auth context
+  jest.spyOn(AuthModule, 'useAuth').mockReturnValue({
+    user: { id: '1', name: 'Admin', isAdmin: true },
+    logout: jest.fn(),
+  })
+
+  renderWithProviders(<Dashboard />)
+
+  expect(screen.getByText('Admin Panel')).toBeInTheDocument()
+})
+```
+
+## User Interactions
+
+```tsx
+import userEvent from '@testing-library/user-event'
+
+test('submits form with correct values', async () => {
+  const user = userEvent.setup()
+  const onSubmit = jest.fn()
+
+  render(<LoginForm onSubmit={onSubmit} />)
+
+  await user.type(screen.getByLabelText('Email'), 'alice@example.com')
+  await user.type(screen.getByLabelText('Password'), 'secret123')
+  await user.click(screen.getByRole('button', { name: 'Sign In' }))
+
+  expect(onSubmit).toHaveBeenCalledWith({
+    email: 'alice@example.com',
+    password: 'secret123',
+  })
+})
+
+test('shows validation error for invalid email', async () => {
+  const user = userEvent.setup()
+  render(<LoginForm onSubmit={jest.fn()} />)
+
+  await user.type(screen.getByLabelText('Email'), 'notanemail')
+  await user.click(screen.getByRole('button', { name: 'Sign In' }))
+
+  expect(screen.getByText('Enter a valid email')).toBeInTheDocument()
+})
+```
+
+## What NOT to Test
+
+```tsx
+// ❌ Don't test implementation details
+expect(wrapper.state('count')).toBe(1)   // internal state — use visible output
+expect(component.find('.counter')).toHaveLength(1)  // CSS class
+expect(mockSetCount).toHaveBeenCalled()  // internal setState call
+
+// ✅ Test what the user sees
+expect(screen.getByText('Count: 1')).toBeInTheDocument()
+await userEvent.click(screen.getByRole('button', { name: 'Increment' }))
+expect(screen.getByText('Count: 2')).toBeInTheDocument()
+```
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- RTL tests user behavior, not implementation — query by role, label, text (not class names or state)
+- `getBy*` throws if not found (use for elements that should be there), `queryBy*` returns null, `findBy*` waits for async
+- Use `userEvent` over `fireEvent` — simulates real browser interactions (keyboard events, focus, etc.)
+- Mock API calls with `jest.fn().mockResolvedValue()`, not with implementation-specific mocks
+- Create a `renderWithProviders` helper to avoid repeating context setup in every test
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "What's the difference between getBy, queryBy, and findBy in RTL?",
+    answer: "getBy* throws an error if the element is not found — use it when the element must exist. queryBy* returns null if not found — use it when testing that something is NOT rendered (expect(screen.queryByText('Error')).not.toBeInTheDocument()). findBy* is async — it returns a Promise that resolves when the element appears or rejects after a timeout — use it for elements that appear after async operations like data fetching. All have plural versions (getAllBy, queryAllBy, findAllBy) that return arrays.",
+    level: "mid"
+  },
+  {
+    question: "How do you test a component that makes an API call?",
+    answer: "Three approaches: (1) Mock fetch/axios globally with jest.fn() or jest.spyOn(). (2) Use msw (Mock Service Worker) to intercept requests at the network level — more realistic and works across tests and Storybook. (3) For React Query, use the QueryClient directly in tests with pre-populated cache. MSW is the recommended modern approach because it tests the actual fetch code (not a mock of it) and catches issues like wrong URLs or request formats. Set up MSW handlers in setupTests.ts and override per test for edge cases.",
+    level: "senior"
+  }
+]} />

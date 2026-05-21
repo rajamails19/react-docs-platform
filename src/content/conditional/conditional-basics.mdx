@@ -1,0 +1,204 @@
+---
+title: Conditional Rendering
+description: Render different UI based on state or props using ternary operators, logical AND, and switch statements.
+category: Conditional Rendering
+order: 1
+slug: conditional/conditional-basics
+difficulty: beginner
+estimatedTime: 8
+tags: [conditional rendering, ternary, logical AND, if, null]
+lastUpdated: 2024-01-15
+---
+
+# Conditional Rendering
+
+React lets you render different UI based on conditions. Since JSX is just JavaScript, you use standard JS techniques — ternary operators, `&&`, and `if` statements outside JSX.
+
+## Ternary Operator
+
+The most common pattern for toggling between two elements:
+
+```tsx
+function Greeting({ isLoggedIn }: { isLoggedIn: boolean }) {
+  return (
+    <div>
+      {isLoggedIn ? (
+        <h1>Welcome back!</h1>
+      ) : (
+        <h1>Please sign in.</h1>
+      )}
+    </div>
+  )
+}
+```
+
+## Logical AND (`&&`)
+
+When you want to render something OR nothing:
+
+```tsx
+function Notifications({ count }: { count: number }) {
+  return (
+    <div>
+      <h1>Inbox</h1>
+      {count > 0 && (
+        <p>You have {count} new messages.</p>
+      )}
+    </div>
+  )
+}
+```
+
+<Callout type="warning" title="Avoid rendering 0">
+`{count && <p>...</p>}` renders the number `0` when count is 0, because `0` is falsy but React renders it.
+
+**Fix:** Use `{count > 0 && <p>...</p>}` or `{!!count && <p>...</p>}`.
+</Callout>
+
+## If Statement (Outside JSX)
+
+For complex conditions, assign JSX to a variable before returning:
+
+```tsx
+function LoadingState({ status }: { status: 'loading' | 'error' | 'success' }) {
+  if (status === 'loading') {
+    return <Spinner />
+  }
+
+  if (status === 'error') {
+    return <ErrorMessage />
+  }
+
+  return <Content />
+}
+```
+
+## Switch Statement
+
+Clean for multiple states:
+
+```tsx
+type Status = 'idle' | 'loading' | 'success' | 'error'
+
+function StatusBadge({ status }: { status: Status }) {
+  const badge = () => {
+    switch (status) {
+      case 'idle':    return <span className="badge-gray">Idle</span>
+      case 'loading': return <span className="badge-blue">Loading…</span>
+      case 'success': return <span className="badge-green">Done</span>
+      case 'error':   return <span className="badge-red">Failed</span>
+    }
+  }
+
+  return <div>{badge()}</div>
+}
+```
+
+## Nullish Rendering
+
+Return `null` to render nothing at all (no DOM output):
+
+```tsx
+function Alert({ message }: { message: string | null }) {
+  if (!message) return null   // renders nothing
+
+  return <div className="alert">{message}</div>
+}
+```
+
+## Interactive Example — Login / Status Toggle
+
+Click through the states to see how each conditional pattern maps to UI:
+
+<LiveEditor code={`import { useState } from 'react'
+
+type Status = 'idle' | 'loading' | 'success' | 'error'
+
+export default function ConditionalDemo() {
+  const [loggedIn, setLoggedIn]       = useState(false)
+  const [status, setStatus]           = useState<Status>('idle')
+  const [notifCount, setNotifCount]   = useState(0)
+
+  const simulateFetch = () => {
+    setStatus('loading')
+    setTimeout(() => setStatus(Math.random() > 0.3 ? 'success' : 'error'), 1200)
+  }
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: 24, maxWidth: 440, display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+      {/* Ternary — toggle between two elements */}
+      <section style={{ padding: 16, background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0' }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, color: '#64748b', marginBottom: 10 }}>TERNARY — two branches</div>
+        {loggedIn ? (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 15, fontWeight: 600 }}>👋 Welcome back!</span>
+            <button onClick={() => setLoggedIn(false)} style={{ padding: '6px 14px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>Log out</button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 15, color: '#64748b' }}>Please sign in</span>
+            <button onClick={() => setLoggedIn(true)} style={{ padding: '6px 14px', background: '#6366f1', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>Log in</button>
+          </div>
+        )}
+      </section>
+
+      {/* && — render or nothing */}
+      <section style={{ padding: 16, background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0' }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, color: '#64748b', marginBottom: 10 }}>LOGICAL && — show or nothing</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button onClick={() => setNotifCount(c => c + 1)} style={{ padding: '6px 12px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>+ Notification</button>
+          <button onClick={() => setNotifCount(0)} style={{ padding: '6px 12px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>Clear</button>
+          {notifCount > 0 && (
+            <span style={{ background: '#ef4444', color: 'white', borderRadius: 999, padding: '2px 8px', fontSize: 13, fontWeight: 700 }}>
+              {notifCount} new
+            </span>
+          )}
+          {notifCount === 0 && <span style={{ fontSize: 13, color: '#9ca3af' }}>No notifications</span>}
+        </div>
+      </section>
+
+      {/* Switch — multiple states */}
+      <section style={{ padding: 16, background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0' }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, color: '#64748b', marginBottom: 10 }}>SWITCH — multiple branches</div>
+        <button onClick={simulateFetch} disabled={status === 'loading'} style={{ padding: '8px 16px', background: '#6366f1', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', marginBottom: 10, fontSize: 13 }}>
+          {status === 'loading' ? 'Fetching…' : 'Simulate fetch'}
+        </button>
+        {(() => {
+          switch (status) {
+            case 'idle':    return <span style={{ color: '#64748b', fontSize: 14 }}>Press the button</span>
+            case 'loading': return <span style={{ color: '#6366f1', fontSize: 14 }}>⏳ Loading…</span>
+            case 'success': return <span style={{ color: '#22c55e', fontSize: 14 }}>✅ Data loaded!</span>
+            case 'error':   return <span style={{ color: '#ef4444', fontSize: 14 }}>❌ Something went wrong</span>
+          }
+        })()}
+      </section>
+    </div>
+  )
+}`} />
+
+<Challenge title="Add a loading spinner">
+In the "SWITCH" example above, replace the loading text with an actual animated spinner.
+
+Use this CSS: `border: 3px solid #e5e7eb; border-top-color: #6366f1; border-radius: 50%; width: 20px; height: 20px; animation: spin 0.6s linear infinite`
+
+You'll need to add a `<style>` tag inside the return or use inline keyframe animation.
+</Challenge>
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- Ternary `condition ? A : B` — render one of two elements
+- Logical AND `condition && <Element />` — render or nothing (watch out for `0`)
+- `if` statements outside JSX — for complex multi-branch logic
+- `switch` — clean multi-state rendering
+- Return `null` to render nothing
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "Why does {count && <p>Items</p>} render '0' when count is 0?",
+    answer: "JavaScript's && operator returns the first falsy value or the last value. When count is 0, 0 is falsy, so && returns 0. React renders 0 as text (it renders numbers). Fix: use count > 0 && <p>Items</p> or Boolean(count) && <p>Items</p>. This is a common React gotcha that trips up beginners.",
+    level: "junior"
+  }
+]} />

@@ -1,0 +1,249 @@
+---
+title: Higher-Order Components
+description: The HOC pattern — wrapping components to add shared behavior like authentication, logging, and data fetching.
+category: Design Patterns
+order: 1
+slug: patterns/hoc
+difficulty: intermediate
+estimatedTime: 12
+tags: [HOC, higher-order components, withAuth, composition, patterns]
+lastUpdated: 2024-01-15
+---
+
+# Higher-Order Components (HOC)
+
+A Higher-Order Component is a function that takes a component and returns a new component with enhanced behavior. HOCs implement the DRY principle for cross-cutting concerns like authentication, error handling, and analytics.
+
+```tsx
+function withEnhancement<P>(WrappedComponent: React.ComponentType<P>) {
+  return function EnhancedComponent(props: P) {
+    // Add behavior here
+    return <WrappedComponent {...props} />
+  }
+}
+```
+
+## Real-World Example: withAuth
+
+```tsx
+interface WithAuthProps {
+  user: User
+}
+
+// HOC that guards a route — redirects to login if not authenticated
+function withAuth<P extends WithAuthProps>(
+  WrappedComponent: React.ComponentType<P>
+) {
+  function AuthenticatedComponent(props: Omit<P, keyof WithAuthProps>) {
+    const { user, isLoading } = useAuth()
+
+    if (isLoading) return <Spinner />
+
+    if (!user) {
+      return <Navigate to="/login" replace />
+    }
+
+    return <WrappedComponent {...(props as P)} user={user} />
+  }
+
+  // Preserve display name for DevTools
+  AuthenticatedComponent.displayName = `withAuth(${WrappedComponent.displayName ?? WrappedComponent.name})`
+
+  return AuthenticatedComponent
+}
+
+// Usage
+function AdminDashboard({ user }: WithAuthProps) {
+  return <h1>Welcome, {user.name}</h1>
+}
+
+// Protected version — no auth code in AdminDashboard itself
+export const ProtectedAdminDashboard = withAuth(AdminDashboard)
+```
+
+## withLoading HOC
+
+```tsx
+interface WithLoadingProps {
+  isLoading: boolean
+}
+
+function withLoading<P extends WithLoadingProps>(
+  WrappedComponent: React.ComponentType<P>,
+  Fallback: React.ComponentType = Spinner
+) {
+  return function LoadingComponent(props: P) {
+    if (props.isLoading) return <Fallback />
+    return <WrappedComponent {...props} />
+  }
+}
+
+// Combine HOCs
+const UserListWithLoading = withLoading(withAuth(UserList))
+```
+
+## withErrorBoundary HOC
+
+```tsx
+function withErrorBoundary<P extends object>(
+  WrappedComponent: React.ComponentType<P>,
+  FallbackComponent?: React.ComponentType<{ error: Error }>
+) {
+  return function SafeComponent(props: P) {
+    return (
+      <ErrorBoundary fallback={FallbackComponent ? <FallbackComponent error={new Error()} /> : undefined}>
+        <WrappedComponent {...props} />
+      </ErrorBoundary>
+    )
+  }
+}
+```
+
+## HOC vs Custom Hook: When to Use Each
+
+```tsx
+// HOC — good for: wrapping with JSX, redirects, conditional rendering
+const ProtectedPage = withAuth(Dashboard)
+
+// Custom Hook — good for: sharing logic, no JSX needed
+function useProtectedData(url: string) {
+  const { user } = useAuth()
+  if (!user) throw new Error('Not authenticated')
+  return useFetch(url)
+}
+```
+
+<ComparisonTable
+  columns={[
+    { key: 'hoc', label: 'HOC' },
+    { key: 'hook', label: 'Custom Hook', highlight: true },
+  ]}
+  rows={[
+    { feature: 'Returns', hoc: 'A new component', hook: 'Values and functions' },
+    { feature: 'Adds JSX/rendering', hoc: 'Yes (wraps component tree)', hook: 'No' },
+    { feature: 'Composable', hoc: 'Yes, but nesting gets messy', hook: 'Yes, clean and flat' },
+    { feature: 'DevTools display', hoc: 'Extra wrapper in tree', hook: 'No extra components' },
+    { feature: 'TypeScript ergonomics', hoc: 'Complex generic inference', hook: 'Straightforward' },
+    { feature: 'Best for', hoc: 'Conditional rendering, redirect', hook: 'Shared stateful logic' },
+  ]}
+/>
+
+## Interactive Example — withAuth and withLogger HOCs
+
+See HOCs composing behavior without touching the wrapped component:
+
+<LiveEditor code={`import { useState, useEffect, ComponentType } from 'react'
+
+// ─── HOC 1: withLogger — logs renders ────────────────────
+function withLogger<P extends object>(WrappedComponent: ComponentType<P>, name: string) {
+  return function LoggedComponent(props: P) {
+    const [renderCount] = useState(() => ({ count: 0 }))
+    renderCount.count++
+    return (
+      <div style={{ position: 'relative' }}>
+        <span style={{ position: 'absolute', top: -8, right: 0, fontSize: 10, background: '#6366f1', color: 'white', padding: '1px 6px', borderRadius: 4 }}>
+          {name} rendered ×{renderCount.count}
+        </span>
+        <WrappedComponent {...props} />
+      </div>
+    )
+  }
+}
+
+// ─── HOC 2: withAuth — guards a component ────────────────
+function withAuth<P extends object>(WrappedComponent: ComponentType<P>) {
+  return function AuthGuard(props: P & { isLoggedIn: boolean }) {
+    const { isLoggedIn, ...rest } = props
+    if (!isLoggedIn) {
+      return (
+        <div style={{ padding: '12px 16px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, fontSize: 14, color: '#dc2626' }}>
+          🔒 Please log in to view this content
+        </div>
+      )
+    }
+    return <WrappedComponent {...rest as P} />
+  }
+}
+
+// ─── Base components ──────────────────────────────────────
+function Dashboard({ username }: { username: string }) {
+  return (
+    <div style={{ padding: '12px 16px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8 }}>
+      <div style={{ fontWeight: 700, fontSize: 15 }}>Dashboard</div>
+      <div style={{ fontSize: 14, color: '#166534', marginTop: 4 }}>Welcome, {username}!</div>
+    </div>
+  )
+}
+
+function Profile({ username }: { username: string }) {
+  return (
+    <div style={{ padding: '12px 16px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8 }}>
+      <div style={{ fontWeight: 700, fontSize: 15 }}>Profile: @{username}</div>
+    </div>
+  )
+}
+
+// ─── Enhanced components ──────────────────────────────────
+const LoggedDashboard = withLogger(withAuth(Dashboard), 'Dashboard')
+const LoggedProfile   = withLogger(withAuth(Profile), 'Profile')
+
+// ─── App ─────────────────────────────────────────────────
+export default function App() {
+  const [loggedIn, setLoggedIn] = useState(false)
+  const [tick, setTick]         = useState(0)
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: 20, display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 380 }}>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={() => setLoggedIn(l => !l)}
+          style={{ padding: '8px 14px', background: loggedIn ? '#ef4444' : '#22c55e', color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+          {loggedIn ? '🔓 Log out' : '🔑 Log in'}
+        </button>
+        <button onClick={() => setTick(t => t + 1)}
+          style={{ padding: '8px 14px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>
+          Force re-render #{tick}
+        </button>
+      </div>
+
+      <LoggedDashboard isLoggedIn={loggedIn} username="alice" />
+      <LoggedProfile   isLoggedIn={loggedIn} username="alice" />
+
+      <p style={{ margin: 0, fontSize: 12, color: '#9ca3af' }}>
+        HOCs compose: withLogger(withAuth(Dashboard)) — neither component was modified.
+      </p>
+    </div>
+  )
+}`} />
+
+<Challenge title="Build withTheme HOC">
+Create `withTheme` that reads a `theme` prop (`'light' | 'dark'`) and injects `bg` and `textColor` as props into the wrapped component:
+
+```tsx
+function withTheme<P>(Component: ComponentType<P & { bg: string; textColor: string }>) {
+  return function Themed(props: P & { theme: 'light' | 'dark' }) {
+    const { theme, ...rest } = props
+    const bg        = theme === 'dark' ? '#111827' : '#ffffff'
+    const textColor = theme === 'dark' ? '#f9fafb'  : '#111827'
+    return <Component {...rest as P} bg={bg} textColor={textColor} />
+  }
+}
+```
+</Challenge>
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- HOCs are functions that take a component and return an enhanced component
+- Use HOCs for wrapping behavior that adds JSX (auth redirects, loading states, error boundaries)
+- Always set `displayName` on the returned component for React DevTools
+- For sharing logic without adding JSX, prefer Custom Hooks — they're simpler and compose better
+- Composing multiple HOCs: `withAuth(withLoading(Component))` — read right to left
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "What problems do HOCs have and when would you choose a custom hook instead?",
+    answer: "HOCs have several issues: (1) Prop collisions — if two HOCs both inject a 'data' prop, one will overwrite the other silently. (2) Wrapper hell in DevTools — deeply nested HOCs create <withAuth(withLoading(withError(Component)))> trees that are hard to debug. (3) TypeScript complexity — generic inference across HOC chains is tricky. (4) You can't use HOCs conditionally (hook rules don't apply but patterns are confusing). Custom hooks solve most of these: they share logic without adding wrapper components, don't have prop collision risk, compose cleanly, and are straightforward to type. Use HOCs only when you specifically need to wrap with JSX or conditionally render (redirect, error boundary).",
+    level: "senior"
+  }
+]} />

@@ -1,0 +1,191 @@
+---
+title: Typing React Hooks
+description: Add TypeScript types to useState, useRef, useReducer, useContext, and custom hooks for fully type-safe React code.
+category: TypeScript
+order: 2
+slug: typescript/ts-hooks
+difficulty: intermediate
+estimatedTime: 10
+tags: [typescript, hooks, useState, useRef, useReducer, generics]
+lastUpdated: 2024-01-15
+---
+
+# Typing React Hooks
+
+TypeScript's generics make React hooks fully type-safe. Each hook accepts a type parameter that tells TypeScript what type to expect from state, refs, reducers, and contexts.
+
+## useState
+
+```tsx
+// TypeScript infers the type from the initial value
+const [count, setCount] = useState(0)           // number
+const [name,  setName]  = useState('')          // string
+const [on,    setOn]    = useState(false)       // boolean
+
+// Explicit generic when initial value is ambiguous
+const [user,    setUser]    = useState<User | null>(null)
+const [items,   setItems]   = useState<string[]>([])
+const [status,  setStatus]  = useState<'idle' | 'loading' | 'error'>('idle')
+
+// Object state — TypeScript checks property names
+interface Profile {
+  name:  string
+  email: string
+  age:   number
+}
+const [profile, setProfile] = useState<Profile>({ name: '', email: '', age: 0 })
+
+// Partial update pattern
+setProfile(prev => ({ ...prev, name: 'Alice' }))
+```
+
+## useRef
+
+```tsx
+// DOM refs — the generic is the element type, initial value must be null
+const inputRef   = useRef<HTMLInputElement>(null)
+const divRef     = useRef<HTMLDivElement>(null)
+const buttonRef  = useRef<HTMLButtonElement>(null)
+
+// Access DOM — use optional chaining because ref.current is null before mount
+const focusInput = () => inputRef.current?.focus()
+const getWidth   = () => inputRef.current?.getBoundingClientRect().width ?? 0
+
+// Mutable value ref (not DOM) — no null, non-null assertion not needed
+const timerRef    = useRef<ReturnType<typeof setTimeout>>()
+const prevValue   = useRef<string>('')
+
+function TextInput() {
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    inputRef.current?.focus()   // focus on mount
+  }, [])
+
+  return <input ref={inputRef} />
+}
+```
+
+## useReducer
+
+```tsx
+// Define action types as a discriminated union
+type Action =
+  | { type: 'increment' }
+  | { type: 'decrement' }
+  | { type: 'reset';    payload: number }
+  | { type: 'set';      payload: number }
+
+interface State {
+  count: number
+  min:   number
+  max:   number
+}
+
+function reducer(state: State, action: Action): State {
+  switch (action.type) {
+    case 'increment': return { ...state, count: Math.min(state.count + 1, state.max) }
+    case 'decrement': return { ...state, count: Math.max(state.count - 1, state.min) }
+    case 'reset':     return { ...state, count: action.payload }
+    case 'set':       return { ...state, count: action.payload }
+    // TypeScript enforces exhaustive handling — add a new case and get an error if you forget
+  }
+}
+
+function Counter() {
+  const [state, dispatch] = useReducer(reducer, { count: 0, min: 0, max: 100 })
+
+  return (
+    <div>
+      <button onClick={() => dispatch({ type: 'decrement' })}>-</button>
+      <span>{state.count}</span>
+      <button onClick={() => dispatch({ type: 'increment' })}>+</button>
+      <button onClick={() => dispatch({ type: 'reset', payload: 0 })}>Reset</button>
+    </div>
+  )
+}
+```
+
+## useContext
+
+```tsx
+interface ThemeContextValue {
+  theme:    'light' | 'dark'
+  toggle:   () => void
+}
+
+// Initialize with null — the custom hook validates the provider
+const ThemeContext = createContext<ThemeContextValue | null>(null)
+
+// Custom hook provides the type guarantee
+export function useTheme(): ThemeContextValue {
+  const ctx = useContext(ThemeContext)
+  if (!ctx) throw new Error('useTheme must be inside ThemeProvider')
+  return ctx   // TypeScript knows this is ThemeContextValue, not null
+}
+
+// Provider
+function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const [theme, setTheme] = useState<'light' | 'dark'>('dark')
+  const toggle = useCallback(() => setTheme(t => t === 'dark' ? 'light' : 'dark'), [])
+
+  const value = useMemo<ThemeContextValue>(() => ({ theme, toggle }), [theme, toggle])
+
+  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
+}
+```
+
+## Custom Hook Return Types
+
+```tsx
+// Explicit return type prevents accidental changes
+interface UseToggleReturn {
+  value:  boolean
+  toggle: () => void
+  setTrue:  () => void
+  setFalse: () => void
+}
+
+function useToggle(initialValue = false): UseToggleReturn {
+  const [value, setValue] = useState(initialValue)
+  return {
+    value,
+    toggle:   () => setValue(v => !v),
+    setTrue:  () => setValue(true),
+    setFalse: () => setValue(false),
+  }
+}
+
+// Tuple return — use const assertion for correct tuple type
+function useLocalStorage<T>(key: string, defaultValue: T) {
+  const [value, setValue] = useState<T>(() => {
+    const stored = localStorage.getItem(key)
+    return stored ? (JSON.parse(stored) as T) : defaultValue
+  })
+
+  const set = useCallback((v: T) => {
+    setValue(v)
+    localStorage.setItem(key, JSON.stringify(v))
+  }, [key])
+
+  return [value, set] as const   // [T, (v: T) => void] — not (T | (v: T) => void)[]
+}
+```
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- `useState<T>(null)` — explicit generic when TypeScript can't infer from initial value
+- `useRef<HTMLInputElement>(null)` — DOM refs must be typed with the HTML element type
+- `useReducer` with discriminated union actions gives exhaustive type checking on switch cases
+- `createContext<T | null>(null)` + custom hook that asserts non-null = safe typed contexts
+- Use `as const` on tuple returns from custom hooks to prevent widening to array type
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "Why do DOM refs need to be initialized with null, while value refs can use undefined?",
+    answer: "React requires DOM refs to start as null because the element doesn't exist yet at initialization time — ref.current becomes the DOM element after mount. If you initialize with undefined, TypeScript allows it but the ref won't be attached to a DOM element properly. For mutable value refs (timers, previous values, counters), you can start with undefined since you're not attaching to DOM — they're just stable boxes for mutable values that don't trigger re-renders. The TypeScript type for DOM refs is RefObject<T> (readonly, null) vs MutableRefObject<T> (read-write, non-null by default).",
+    level: "mid"
+  }
+]} />

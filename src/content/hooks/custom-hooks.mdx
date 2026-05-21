@@ -1,0 +1,380 @@
+---
+title: Custom Hooks
+description: Extract and reuse stateful logic across components by building your own hooks.
+category: Hooks
+order: 7
+slug: hooks/custom-hooks
+difficulty: advanced
+estimatedTime: 20
+tags: [custom hooks, reusable, composition, abstraction, useFetch, useLocalStorage]
+lastUpdated: 2024-01-15
+---
+
+# Custom Hooks
+
+Custom hooks are **JavaScript functions whose names start with `use`** that can call other hooks. They let you extract stateful logic into reusable units — the same way you extract components for reusable UI.
+
+<Callout type="info" title="The key insight">
+Components share UI. Custom hooks share **logic**. This is React's primary code-reuse mechanism for stateful behavior.
+</Callout>
+
+## Building Your First Custom Hook
+
+Extract repetitive logic from components into a hook:
+
+```tsx
+// ❌ Before: copy-pasted in 5 components
+function UserProfile({ userId }: { userId: string }) {
+  const [data, setData]   = useState<User | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch(`/api/users/${userId}`)
+      .then(r => r.json())
+      .then(d => { setData(d); setLoading(false) })
+      .catch(e => { setError(e.message); setLoading(false) })
+  }, [userId])
+
+  // ...
+}
+
+// ✅ After: extract to custom hook
+function useFetch<T>(url: string) {
+  const [data, setData]     = useState<T | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError]   = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    const controller = new AbortController()
+    setLoading(true)
+
+    fetch(url, { signal: controller.signal })
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
+      .then(d => { if (!cancelled) { setData(d); setLoading(false) } })
+      .catch(e => { if (!cancelled && e.name !== 'AbortError') { setError(e.message); setLoading(false) } })
+
+    return () => { cancelled = true; controller.abort() }
+  }, [url])
+
+  return { data, loading, error }
+}
+
+// Now any component uses it in one line:
+const { data: user, loading, error } = useFetch<User>(`/api/users/${userId}`)
+```
+
+## Essential Custom Hooks Library
+
+### useLocalStorage
+
+```tsx
+function useLocalStorage<T>(key: string, initial: T) {
+  const [value, setValue] = useState<T>(() => {
+    try {
+      const item = window.localStorage.getItem(key)
+      return item ? JSON.parse(item) : initial
+    } catch {
+      return initial
+    }
+  })
+
+  const set = useCallback((val: T | ((prev: T) => T)) => {
+    setValue(prev => {
+      const next = typeof val === 'function' ? (val as (p: T) => T)(prev) : val
+      try { window.localStorage.setItem(key, JSON.stringify(next)) } catch {}
+      return next
+    })
+  }, [key])
+
+  return [value, set] as const
+}
+
+// Usage — persists across page reloads
+const [theme, setTheme] = useLocalStorage('theme', 'light')
+```
+
+### useDebounce
+
+```tsx
+function useDebounce<T>(value: T, delay = 300): T {
+  const [debounced, setDebounced] = useState(value)
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delay)
+    return () => clearTimeout(timer)
+  }, [value, delay])
+
+  return debounced
+}
+
+// Usage — debounce search input before hitting API
+function SearchBox() {
+  const [query, setQuery]     = useState('')
+  const debouncedQuery        = useDebounce(query, 400)
+
+  const { data } = useFetch<Result[]>(`/api/search?q=${debouncedQuery}`)
+
+  return (
+    <>
+      <input value={query} onChange={e => setQuery(e.target.value)} />
+      {data?.map(r => <ResultItem key={r.id} result={r} />)}
+    </>
+  )
+}
+```
+
+### useToggle
+
+```tsx
+function useToggle(initial = false) {
+  const [value, setValue] = useState(initial)
+  const toggle  = useCallback(() => setValue(v => !v), [])
+  const setTrue  = useCallback(() => setValue(true),  [])
+  const setFalse = useCallback(() => setValue(false), [])
+  return [value, { toggle, setTrue, setFalse }] as const
+}
+
+// Usage
+const [open, { toggle, setFalse }] = useToggle()
+```
+
+### useMediaQuery
+
+```tsx
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(() => window.matchMedia(query).matches)
+
+  useEffect(() => {
+    const mq = window.matchMedia(query)
+    setMatches(mq.matches)
+    const handler = (e: MediaQueryListEvent) => setMatches(e.matches)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [query])
+
+  return matches
+}
+
+// Usage
+const isMobile  = useMediaQuery('(max-width: 768px)')
+const isDark    = useMediaQuery('(prefers-color-scheme: dark)')
+const isReducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
+```
+
+### useInterval
+
+```tsx
+function useInterval(callback: () => void, delay: number | null) {
+  const savedCallback = useRef(callback)
+
+  useEffect(() => { savedCallback.current = callback })
+
+  useEffect(() => {
+    if (delay === null) return
+    const id = setInterval(() => savedCallback.current(), delay)
+    return () => clearInterval(id)
+  }, [delay])
+}
+
+// Usage — set delay to null to pause
+const [paused, setPaused] = useState(false)
+useInterval(() => setCount(c => c + 1), paused ? null : 1000)
+```
+
+### useOnClickOutside
+
+```tsx
+function useOnClickOutside(
+  ref: RefObject<HTMLElement>,
+  handler: (event: MouseEvent | TouchEvent) => void
+) {
+  useEffect(() => {
+    const listener = (e: MouseEvent | TouchEvent) => {
+      if (!ref.current || ref.current.contains(e.target as Node)) return
+      handler(e)
+    }
+    document.addEventListener('mousedown', listener)
+    document.addEventListener('touchstart', listener)
+    return () => {
+      document.removeEventListener('mousedown', listener)
+      document.removeEventListener('touchstart', listener)
+    }
+  }, [ref, handler])
+}
+
+// Usage — close dropdown when clicking outside
+const menuRef = useRef<HTMLDivElement>(null)
+useOnClickOutside(menuRef, () => setOpen(false))
+```
+
+## Interactive Example — Three hooks in action
+
+`useCounter`, `useToggle`, and `useDebounce` all in one sandbox:
+
+<LiveEditor code={`import { useState, useCallback, useEffect } from 'react'
+
+// ─── Custom hooks ───────────────────────────────────────────
+function useCounter(initial = 0, step = 1) {
+  const [count, setCount] = useState(initial)
+  return {
+    count,
+    increment: () => setCount(c => c + step),
+    decrement: () => setCount(c => c - step),
+    reset:     () => setCount(initial),
+  }
+}
+
+function useToggle(initial = false) {
+  const [on, setOn] = useState(initial)
+  return [on, () => setOn(v => !v)] as const
+}
+
+function useDebounce<T>(value: T, delay = 400): T {
+  const [debounced, setDebounced] = useState(value)
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay)
+    return () => clearTimeout(t)
+  }, [value, delay])
+  return debounced
+}
+// ────────────────────────────────────────────────────────────
+
+const card = (children: React.ReactNode, label: string) => (
+  <section style={{ padding: '14px 16px', border: '1px solid #e5e7eb', borderRadius: 10, marginBottom: 12 }}>
+    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, color: '#6b7280', marginBottom: 8 }}>{label}</div>
+    {children}
+  </section>
+)
+
+export default function App() {
+  const counter = useCounter(0, 5)
+  const [dark, toggleDark] = useToggle()
+  const [query, setQuery]  = useState('')
+  const debounced          = useDebounce(query, 500)
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: 20, background: dark ? '#111827' : '#fff', color: dark ? '#f9fafb' : '#111', minHeight: '100%', transition: 'all 0.2s' }}>
+      {card(
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button onClick={counter.decrement} style={{ width: 32, height: 32, borderRadius: 6, border: '1px solid #e5e7eb', cursor: 'pointer', background: dark ? '#1f2937' : '#f9fafb', color: 'inherit', fontSize: 18 }}>−</button>
+          <span style={{ fontSize: 24, fontWeight: 700, minWidth: 48, textAlign: 'center' }}>{counter.count}</span>
+          <button onClick={counter.increment} style={{ width: 32, height: 32, borderRadius: 6, border: '1px solid #e5e7eb', cursor: 'pointer', background: dark ? '#1f2937' : '#f9fafb', color: 'inherit', fontSize: 18 }}>+</button>
+          <button onClick={counter.reset} style={{ marginLeft: 4, fontSize: 12, color: '#6b7280', background: 'none', border: 'none', cursor: 'pointer' }}>reset</button>
+        </div>,
+        'useCounter(0, step=5)'
+      )}
+
+      {card(
+        <button onClick={toggleDark} style={{ padding: '8px 16px', background: dark ? '#f9fafb' : '#111827', color: dark ? '#111' : '#f9fafb', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 14 }}>
+          {dark ? '☀ Light mode' : '🌙 Dark mode'}
+        </button>,
+        'useToggle()'
+      )}
+
+      {card(
+        <div>
+          <input
+            value={query} onChange={e => setQuery(e.target.value)}
+            placeholder="Type something…"
+            style={{ width: '100%', padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 14, boxSizing: 'border-box', background: dark ? '#1f2937' : '#fff', color: 'inherit' }}
+          />
+          <div style={{ marginTop: 8, fontSize: 13, color: '#6b7280' }}>
+            Raw: <strong>"{query}"</strong>
+          </div>
+          <div style={{ fontSize: 13, color: debounced === query ? '#22c55e' : '#f59e0b' }}>
+            Debounced (500ms): <strong>"{debounced}"</strong>
+            {debounced !== query && ' ⏳ waiting…'}
+          </div>
+        </div>,
+        'useDebounce(query, 500)'
+      )}
+    </div>
+  )
+}`} />
+
+<Challenge title="Build useCounter with min/max bounds">
+Extend `useCounter` so that:
+
+- `increment` stops at `max` (default `Infinity`)
+- `decrement` stops at `min` (default `-Infinity`)
+- The +/− buttons become disabled at the bounds
+
+```tsx
+function useCounter(initial = 0, { step = 1, min = -Infinity, max = Infinity } = {}) {
+  // your implementation
+}
+```
+</Challenge>
+
+## Composing Custom Hooks
+
+Custom hooks compose naturally — build complex behavior from simpler hooks:
+
+```tsx
+// Combines useFetch + useDebounce + localStorage for a full search feature
+function useSearch<T>(endpoint: string) {
+  const [recentSearches, setRecentSearches] = useLocalStorage<string[]>('recent-searches', [])
+  const [query, setQuery] = useState('')
+  const debouncedQuery    = useDebounce(query, 400)
+
+  const { data, loading, error } = useFetch<T[]>(
+    debouncedQuery.trim() ? `${endpoint}?q=${encodeURIComponent(debouncedQuery)}` : ''
+  )
+
+  const saveSearch = useCallback((term: string) => {
+    setRecentSearches(prev => [term, ...prev.filter(s => s !== term)].slice(0, 10))
+  }, [setRecentSearches])
+
+  return { query, setQuery, results: data ?? [], loading, error, recentSearches, saveSearch }
+}
+```
+
+## Rules of Custom Hooks
+
+1. **Must start with `use`** — this tells React (and the linter) it's a hook
+2. **Can call other hooks** — useState, useEffect, useCallback, and other custom hooks
+3. **Each instance is isolated** — two components using the same hook don't share state
+4. **Follow hook rules** — only call at the top level, not in conditionals/loops
+
+```tsx
+// ❌ NOT a custom hook — doesn't start with 'use'
+function getUser(id: string) { return useFetch(`/api/users/${id}`) }
+
+// ✅ Properly named custom hook
+function useUser(id: string) { return useFetch<User>(`/api/users/${id}`) }
+
+// ✅ Two components use the same hook but have separate state
+function ProfileA() { const user = useUser('alice') }
+function ProfileB() { const user = useUser('bob')   }
+// ProfileA's useUser and ProfileB's useUser are completely independent
+```
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- Custom hooks extract stateful logic into reusable functions
+- They must start with `use` and can call other hooks
+- Each usage of a hook creates **independent, isolated state**
+- Compose custom hooks to build complex features from simple building blocks
+- Essential production hooks: `useFetch`, `useLocalStorage`, `useDebounce`, `useMediaQuery`, `useInterval`
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "What is a custom hook and why is the 'use' prefix important?",
+    answer: "A custom hook is a JavaScript function that starts with 'use' and can call other React hooks. The 'use' prefix matters because: (1) React's lint rules (eslint-plugin-react-hooks) use it to identify hooks and enforce hook rules, (2) it signals to developers that this function has hook semantics (can't be called conditionally), (3) React DevTools show hooks beginning with 'use' in the component inspector. Without the prefix, React can't automatically enforce hook rules, which leads to subtle bugs.",
+    level: "junior"
+  },
+  {
+    question: "How do custom hooks enable code sharing without sharing state?",
+    answer: "Each call to a custom hook creates completely independent state and effects. If ComponentA and ComponentB both use useCounter(), they each get their own count variable — there's no shared state between them. This is different from a module-level variable (shared singleton) or Context (shared across tree). The hook just packages the logic; each component instance gets its own copy of the state. This isolation is what makes hooks composable — you get reusable behavior without coupling component instances.",
+    level: "mid"
+  },
+  {
+    question: "Design a production-grade usePagination hook for a large data table.",
+    answer: "usePagination should handle: (1) Current page, page size, and total count as state, (2) URL sync (push/replace page param to browser history so users can share/bookmark URLs), (3) Derived values: totalPages, hasPrevPage, hasNextPage, startItem, endItem, (4) Actions: goToPage, nextPage, prevPage, setPageSize, (5) Reset to page 1 when filters change (pass filters as dependency). The hook returns all these plus a 'paginationProps' object that can be spread onto a Pagination UI component. Store page in URL query params with URLSearchParams API so page state survives navigation and is shareable.",
+    level: "senior"
+  }
+]} />

@@ -1,0 +1,238 @@
+---
+title: React Query / TanStack Query
+description: The industry-standard solution for server state management, data fetching, caching, and synchronization.
+category: API Calls
+order: 2
+slug: api-calls/react-query
+difficulty: advanced
+estimatedTime: 18
+tags: [react query, tanstack query, server state, caching, data fetching, mutations]
+lastUpdated: 2024-01-15
+badge: new
+---
+
+# React Query (TanStack Query)
+
+TanStack Query is the gold standard for **server state management** in React. It handles caching, background refetching, optimistic updates, pagination, infinite scroll, and more — replacing hundreds of lines of manual `useEffect` + `useState` code.
+
+## Installation
+
+```bash
+npm install @tanstack/react-query @tanstack/react-query-devtools
+```
+
+## Setup
+
+```tsx
+// main.tsx
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime:   60 * 1000,  // 1 minute before data is considered stale
+      gcTime:      5 * 60 * 1000,  // 5 minutes before unused cache is cleared
+      retry:       2,
+      refetchOnWindowFocus: true,  // refetch when user returns to the tab
+    },
+  },
+})
+
+createRoot(document.getElementById('root')!).render(
+  <QueryClientProvider client={queryClient}>
+    <App />
+    <ReactQueryDevtools initialIsOpen={false} />
+  </QueryClientProvider>
+)
+```
+
+## useQuery — Fetching Data
+
+```tsx
+import { useQuery } from '@tanstack/react-query'
+
+interface Product { id: number; name: string; price: number }
+
+// Define a query key — used for caching and invalidation
+const productKeys = {
+  all:    ['products']                    as const,
+  list:   (filters: string) => ['products', 'list', filters] as const,
+  detail: (id: number)      => ['products', 'detail', id]    as const,
+}
+
+async function fetchProduct(id: number): Promise<Product> {
+  const res = await fetch(`/api/products/${id}`)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}
+
+function ProductDetail({ id }: { id: number }) {
+  const { data, isPending, isError, error, isFetching } = useQuery({
+    queryKey: productKeys.detail(id),
+    queryFn:  () => fetchProduct(id),
+    staleTime: 5 * 60 * 1000,  // 5 minutes — product data changes rarely
+  })
+
+  if (isPending) return <ProductSkeleton />
+  if (isError)   return <Error message={error.message} />
+
+  return (
+    <div>
+      {isFetching && <RefreshIndicator />}  {/* background refetch */}
+      <h1>{data.name}</h1>
+      <Price value={data.price} />
+    </div>
+  )
+}
+```
+
+## useMutation — Creating / Updating / Deleting
+
+```tsx
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+
+function AddToCart({ productId }: { productId: number }) {
+  const queryClient = useQueryClient()
+
+  const mutation = useMutation({
+    mutationFn: (qty: number) =>
+      fetch('/api/cart', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productId, qty }),
+      }).then(r => r.json()),
+
+    onMutate: async (qty) => {
+      // Optimistic update — cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ['cart'] })
+      const prev = queryClient.getQueryData(['cart'])
+
+      // Optimistically update the cache
+      queryClient.setQueryData(['cart'], (old: CartItem[]) => [
+        ...old,
+        { productId, qty, id: 'temp' }
+      ])
+
+      return { prev }  // context for rollback
+    },
+
+    onError: (err, qty, context) => {
+      // Rollback on error
+      queryClient.setQueryData(['cart'], context?.prev)
+      toast.error('Failed to add to cart')
+    },
+
+    onSettled: () => {
+      // Always refetch to sync with server
+      queryClient.invalidateQueries({ queryKey: ['cart'] })
+    },
+  })
+
+  return (
+    <button
+      onClick={() => mutation.mutate(1)}
+      disabled={mutation.isPending}
+    >
+      {mutation.isPending ? 'Adding...' : 'Add to Cart'}
+    </button>
+  )
+}
+```
+
+## Query Key Strategy
+
+The query key is the cache key — get it right:
+
+```tsx
+// ✅ Hierarchical keys with factories
+const userKeys = {
+  all:      ['users']                               as const,
+  lists:    () => [...userKeys.all, 'list']         as const,
+  list:     (filters: Filters) => [...userKeys.lists(), filters] as const,
+  details:  () => [...userKeys.all, 'detail']       as const,
+  detail:   (id: string) => [...userKeys.details(), id] as const,
+}
+
+// Now invalidation is surgical:
+// Invalidate all user queries
+queryClient.invalidateQueries({ queryKey: userKeys.all })
+
+// Invalidate only user lists
+queryClient.invalidateQueries({ queryKey: userKeys.lists() })
+
+// Invalidate one specific user
+queryClient.invalidateQueries({ queryKey: userKeys.detail(userId) })
+```
+
+## Dependent Queries
+
+```tsx
+// Fetch user, then fetch their posts
+function UserPosts({ userId }: { userId: string }) {
+  const { data: user } = useQuery({
+    queryKey: userKeys.detail(userId),
+    queryFn:  () => fetchUser(userId),
+  })
+
+  const { data: posts } = useQuery({
+    queryKey: ['posts', userId],
+    queryFn:  () => fetchPosts(userId),
+    enabled:  !!user,  // only run when user is loaded
+  })
+}
+```
+
+## Infinite Queries
+
+```tsx
+import { useInfiniteQuery } from '@tanstack/react-query'
+
+function InfinitePostList() {
+  const {
+    data, fetchNextPage, hasNextPage, isFetchingNextPage
+  } = useInfiniteQuery({
+    queryKey: ['posts'],
+    queryFn: ({ pageParam }) =>
+      fetch(`/api/posts?cursor=${pageParam}&limit=20`).then(r => r.json()),
+    initialPageParam: undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+  })
+
+  const posts = data?.pages.flatMap(page => page.items) ?? []
+
+  return (
+    <div>
+      {posts.map(post => <PostCard key={post.id} post={post} />)}
+      {hasNextPage && (
+        <button onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
+          {isFetchingNextPage ? 'Loading...' : 'Load more'}
+        </button>
+      )}
+    </div>
+  )
+}
+```
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- React Query manages **server state** — caching, deduplication, background refetch
+- `useQuery` fetches and caches data; `useMutation` creates/updates/deletes with optimistic updates
+- Query keys are the cache identity — use hierarchical factories for surgical invalidation
+- `enabled` option enables dependent queries that wait for prerequisites
+- `useInfiniteQuery` handles cursor-based or offset pagination out of the box
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "What is the difference between server state and client state?",
+    answer: "Client state: owned by the frontend, never persists to a server. Examples: open/close, form drafts, UI preferences. Best managed with useState/useReducer or Zustand. Server state: lives on the server, the client has a synchronized copy. Examples: user list, product catalog, order history. Server state is async (needs loading/error states), can be stale, can be changed by other users, and needs invalidation. React Query is specifically designed for server state — it handles the async, caching, and sync concerns that useEffect can't cleanly manage.",
+    level: "mid"
+  },
+  {
+    question: "How does React Query's staleTime vs gcTime work?",
+    answer: "staleTime: how long after a successful fetch the data is considered 'fresh'. During this window, React Query serves cached data without refetching (even when a new component mounts). After staleTime, data is 'stale' — React Query will serve the cached data but trigger a background refetch. gcTime (previously cacheTime): how long unused cache entries are kept in memory after all observers (components) unmount. The cache entry is garbage collected after this time. Best practice: set staleTime to match how frequently your data changes (1min for user profiles, 0 for real-time data), keep gcTime longer (5-10min) to enable instant cache hits on navigation back.",
+    level: "senior"
+  }
+]} />

@@ -1,0 +1,452 @@
+---
+title: JSX Basics — Syntax, Compilation, and How It Works
+description: Understand what JSX is, how it compiles to React.createElement calls, the differences from HTML, fragments, and why JSX makes UI code more readable.
+category: JSX
+order: 1
+slug: jsx/jsx-basics
+difficulty: beginner
+estimatedTime: 14
+tags: [jsx, babel, swc, react-element, createElement, fragments, compilation, syntax]
+lastUpdated: 2024-01-15
+---
+
+# JSX Basics
+
+JSX is the XML-like syntax you write inside React components. It looks like HTML but it's not — it's JavaScript with a special syntax that compiles down to plain function calls.
+
+```tsx
+// This is JSX
+function Greeting({ name }: { name: string }) {
+  return <h1 className="greeting">Hello, {name}!</h1>
+}
+```
+
+At first glance it seems like you're writing HTML inside JavaScript. You're not. You're writing a **domain-specific syntax** that gets transformed into function calls before the browser ever sees it.
+
+## JSX Is Syntactic Sugar for `React.createElement`
+
+Every JSX element is shorthand for a `React.createElement()` call. The transformation happens at compile time by Babel or SWC.
+
+```tsx
+// What you write (JSX):
+const element = <h1 className="greeting">Hello, world!</h1>
+
+// What the compiler transforms it to:
+const element = React.createElement(
+  'h1',                    // element type
+  { className: 'greeting' }, // props object
+  'Hello, world!'          // children
+)
+```
+
+The `React.createElement` function returns a plain JavaScript object — a **React element** — that describes what should appear in the UI:
+
+```js
+// The object React.createElement returns:
+{
+  type: 'h1',
+  props: {
+    className: 'greeting',
+    children: 'Hello, world!'
+  },
+  key: null,
+  ref: null,
+}
+```
+
+React reads these objects and uses them to build and update the DOM. This is the foundation of the virtual DOM.
+
+## The JSX Pragma and React 17+ Transform
+
+Before React 17, you needed to `import React from 'react'` in every file that used JSX, even if you never called `React` directly. This was because the JSX transform compiled to `React.createElement()` calls, which required `React` to be in scope.
+
+```tsx
+// Before React 17 — required even if you never use React directly
+import React from 'react'
+
+function Button() {
+  return <button>Click me</button>
+  // Compiled to: React.createElement('button', null, 'Click me')
+  // Without the import → ReferenceError: React is not defined
+}
+```
+
+React 17 introduced the **new JSX transform** which auto-imports the necessary runtime:
+
+```tsx
+// React 17+ — no explicit React import needed
+function Button() {
+  return <button>Click me</button>
+  // Compiled to: import { jsx as _jsx } from 'react/jsx-runtime'
+  //              _jsx('button', { children: 'Click me' })
+}
+```
+
+Vite and modern CRA projects use the new transform by default. You still import React when you need it (for hooks, types, etc.), but not just for JSX.
+
+<Callout type="info" title="What is the JSX pragma?">
+The JSX pragma is a special comment that tells the compiler how to transform JSX. The default is `/** @jsx React.createElement */`. With the new React 17+ transform, tools like Vite configure this automatically in the plugin — you don't need to set it manually.
+</Callout>
+
+## JSX vs HTML — Key Differences
+
+JSX looks like HTML but has important differences. These trip up beginners constantly.
+
+### `className` instead of `class`
+
+`class` is a reserved keyword in JavaScript, so JSX uses `className`:
+
+```tsx
+// HTML
+<div class="container">...</div>
+
+// JSX ✅
+<div className="container">...</div>
+
+// JSX ❌ — works in some browsers but React warns
+<div class="container">...</div>
+```
+
+### `htmlFor` instead of `for`
+
+`for` is a reserved keyword (used in `for` loops), so JSX uses `htmlFor`:
+
+```tsx
+// HTML
+<label for="email">Email</label>
+
+// JSX ✅
+<label htmlFor="email">Email</label>
+```
+
+### camelCase Event Handlers
+
+DOM event names are lowercase in HTML but camelCase in JSX:
+
+```tsx
+// HTML
+<button onclick="handleClick()">Click</button>
+
+// JSX ✅
+<button onClick={handleClick}>Click</button>
+
+// More examples:
+<input onChange={handleChange} />
+<form onSubmit={handleSubmit} />
+<div onMouseEnter={handleHover} onKeyDown={handleKey} />
+```
+
+### camelCase Attribute Names
+
+Most multi-word attributes that are hyphenated in HTML become camelCase in JSX:
+
+```tsx
+// HTML
+<input maxlength="100" tabindex="1" autocomplete="off" />
+<video autoplay playsinline />
+
+// JSX ✅
+<input maxLength={100} tabIndex={1} autoComplete="off" />
+<video autoPlay playsInline />
+```
+
+Notable exceptions: `data-*` and `aria-*` attributes stay hyphenated:
+
+```tsx
+// These stay hyphenated in JSX
+<div data-testid="submit-button" aria-label="Submit form">
+```
+
+### `style` as an Object, Not a String
+
+In HTML, style is a string. In JSX, it's a JavaScript object with camelCase properties:
+
+```tsx
+// HTML
+<div style="background-color: red; font-size: 16px;">
+
+// JSX ✅ — object with camelCase
+<div style={{ backgroundColor: 'red', fontSize: '16px' }}>
+
+// JSX ❌ — string doesn't work
+<div style="background-color: red;">
+```
+
+The outer `{}` is the JSX expression delimiter; the inner `{}` is the JavaScript object literal.
+
+<ComparisonTable
+  columns={[
+    { key: 'html', label: 'HTML Attribute' },
+    { key: 'jsx', label: 'JSX Equivalent', highlight: true },
+    { key: 'note', label: 'Notes' },
+  ]}
+  rows={[
+    { feature: 'CSS class', html: 'class', jsx: 'className', note: '"class" is a JS keyword' },
+    { feature: 'Label binding', html: 'for', jsx: 'htmlFor', note: '"for" is a JS keyword' },
+    { feature: 'Click handler', html: 'onclick', jsx: 'onClick', note: 'All events are camelCase' },
+    { feature: 'Change handler', html: 'onchange', jsx: 'onChange', note: '' },
+    { feature: 'Inline style', html: 'style="color:red"', jsx: 'style={{ color: "red" }}', note: 'Object, not string' },
+    { feature: 'Max length', html: 'maxlength', jsx: 'maxLength', note: 'camelCase' },
+    { feature: 'Tab index', html: 'tabindex', jsx: 'tabIndex', note: 'camelCase' },
+    { feature: 'Auto complete', html: 'autocomplete', jsx: 'autoComplete', note: 'camelCase' },
+    { feature: 'Data attrs', html: 'data-value', jsx: 'data-value', note: 'Keep hyphen as-is' },
+    { feature: 'ARIA attrs', html: 'aria-label', jsx: 'aria-label', note: 'Keep hyphen as-is' },
+  ]}
+/>
+
+## Fragments — Returning Multiple Elements
+
+A JSX expression must return a single root element. But sometimes you don't want an extra DOM node wrapping your content. Use **Fragments**:
+
+```tsx
+// ❌ Error: JSX expressions must have one parent element
+function Labels() {
+  return (
+    <span>First</span>
+    <span>Second</span>
+  )
+}
+
+// ✅ Option 1: Wrap in a div (adds extra DOM node)
+function Labels() {
+  return (
+    <div>
+      <span>First</span>
+      <span>Second</span>
+    </div>
+  )
+}
+
+// ✅ Option 2: Fragment — no extra DOM node
+import { Fragment } from 'react'
+
+function Labels() {
+  return (
+    <Fragment>
+      <span>First</span>
+      <span>Second</span>
+    </Fragment>
+  )
+}
+
+// ✅ Option 3: Short syntax <> </> (most common)
+function Labels() {
+  return (
+    <>
+      <span>First</span>
+      <span>Second</span>
+    </>
+  )
+}
+```
+
+Fragments render their children directly into the parent without a wrapper element. Use them when:
+
+- You're rendering table rows (`<tr>`) — tables can't have extra `<div>` wrappers
+- You want to avoid adding nodes that would break CSS layouts (flexbox, grid)
+- You're rendering a list of elements from a map
+
+### When to Use `<Fragment>` vs `<>`
+
+The short syntax `<>` cannot accept any props. The only time you need `<Fragment>` explicitly is when you need to set a `key` prop (required when rendering lists):
+
+```tsx
+function DefinitionList({ items }) {
+  return (
+    <dl>
+      {items.map(item => (
+        // <> cannot take key — must use <Fragment key={...}>
+        <Fragment key={item.id}>
+          <dt>{item.term}</dt>
+          <dd>{item.definition}</dd>
+        </Fragment>
+      ))}
+    </dl>
+  )
+}
+```
+
+## Multiline JSX and Parentheses
+
+When JSX spans multiple lines, wrap it in parentheses to avoid JavaScript's automatic semicolon insertion (ASI) gotcha:
+
+```tsx
+// ❌ Dangerous — JavaScript inserts semicolon after 'return'
+function Card() {
+  return      // ← ASI adds semicolon here, returns undefined!
+    <div>
+      <h1>Title</h1>
+    </div>
+}
+
+// ✅ Parentheses prevent ASI issue
+function Card() {
+  return (
+    <div>
+      <h1>Title</h1>
+      <p>Content</p>
+    </div>
+  )
+}
+```
+
+Single-line JSX on the same line as `return` is safe without parentheses:
+
+```tsx
+// ✅ Fine — no ASI risk
+function Title() {
+  return <h1>Hello</h1>
+}
+```
+
+## Self-Closing Tags
+
+In HTML, some elements are void elements and don't need closing tags (`<img>`, `<input>`, `<br>`). In JSX, **every element must be either self-closed or have a closing tag**:
+
+```tsx
+// HTML — void elements don't need closing
+<img src="photo.jpg">
+<input type="text">
+<br>
+
+// JSX ✅ — must self-close
+<img src="photo.jpg" />
+<input type="text" />
+<br />
+
+// JSX — custom components can also self-close
+<UserAvatar />
+<Icon name="star" />
+```
+
+## JSX Represents Objects
+
+Understanding that JSX compiles to objects unlocks powerful patterns. You can store JSX in variables, arrays, and pass it as props:
+
+```tsx
+// Store JSX in a variable
+const header = <h1>Dashboard</h1>
+const icon = <StarIcon className="text-yellow-500" />
+
+// JSX in arrays
+const buttons = [
+  <button key="save">Save</button>,
+  <button key="cancel">Cancel</button>,
+]
+
+// JSX as a prop value (render props pattern)
+function Modal({ title, children }) {
+  return (
+    <dialog>
+      <header>{title}</header>
+      <main>{children}</main>
+    </dialog>
+  )
+}
+
+// Usage:
+<Modal title={<><UserIcon /> Profile Settings</>}>
+  <ProfileForm />
+</Modal>
+```
+
+<Callout type="tip" title="JSX elements are immutable">
+Once created, a React element cannot be changed. When state updates, React creates new element objects and reconciles the changes with the DOM. The elements themselves are never mutated — this is what makes React's rendering predictable.
+</Callout>
+
+## A Complete JSX Example
+
+Here's a component demonstrating everything covered in this lesson:
+
+```tsx
+import { Fragment } from 'react'
+
+interface Product {
+  id: number
+  name: string
+  price: number
+  inStock: boolean
+  imageUrl: string
+}
+
+interface ProductCardProps {
+  product: Product
+  onAddToCart: (id: number) => void
+  featured?: boolean
+}
+
+function ProductCard({ product, onAddToCart, featured = false }: ProductCardProps) {
+  // JSX stored in a variable
+  const badge = featured ? (
+    <span className="badge badge-featured">Featured</span>
+  ) : null
+
+  return (
+    // Fragment — no extra wrapper div
+    <>
+      {/* Style as an object */}
+      <article
+        className="product-card"
+        style={{ border: featured ? '2px solid gold' : '1px solid #eee' }}
+        data-testid={`product-${product.id}`}
+        aria-label={`Product: ${product.name}`}
+      >
+        {/* Self-closing img tag */}
+        <img
+          src={product.imageUrl}
+          alt={product.name}
+          className="product-image"
+        />
+
+        <div className="product-info">
+          {badge}
+          <h2 className="product-name">{product.name}</h2>
+          <p className="product-price">${product.price.toFixed(2)}</p>
+        </div>
+
+        {/* htmlFor on label, onClick camelCase */}
+        <div className="product-actions">
+          <label htmlFor={`qty-${product.id}`} className="sr-only">
+            Quantity
+          </label>
+          <input
+            id={`qty-${product.id}`}
+            type="number"
+            defaultValue={1}
+            min={1}
+            maxLength={3}
+            className="quantity-input"
+          />
+          <button
+            onClick={() => onAddToCart(product.id)}
+            disabled={!product.inStock}
+            className="add-to-cart-btn"
+          >
+            {product.inStock ? 'Add to Cart' : 'Out of Stock'}
+          </button>
+        </div>
+      </article>
+    </>
+  )
+}
+
+export default ProductCard
+```
+
+<InterviewQA questions={[
+  {
+    question: "What is JSX and how does it work under the hood?",
+    answer: "JSX is a syntax extension for JavaScript that looks like HTML and lets you write UI structure alongside logic. It's not valid JavaScript — compilers like Babel or SWC transform it before the browser sees it. Each JSX element becomes a React.createElement() call (or _jsx() with the React 17+ transform), which returns a plain JavaScript object called a React element. This object describes the type, props, and children of a UI node. React reads these objects to build and update the DOM efficiently.",
+    level: "junior"
+  },
+  {
+    question: "What are the main differences between JSX and HTML?",
+    answer: "Key differences: (1) className instead of class — 'class' is a reserved JavaScript keyword. (2) htmlFor instead of for — 'for' is a reserved keyword. (3) All event handlers are camelCase (onClick, onChange, onSubmit) instead of lowercase. (4) style is a JavaScript object with camelCase properties (style={{ backgroundColor: 'red' }}) not a CSS string. (5) All tags must be closed or self-closed — <img /> not <img>. (6) JSX must return a single root element (use Fragments to avoid extra DOM nodes). (7) data-* and aria-* attributes keep their hyphens.",
+    level: "junior"
+  },
+  {
+    question: "Why did React 17 change the JSX transform, and what was the old requirement?",
+    answer: "Before React 17, every file using JSX needed `import React from 'react'` even if React was never called directly. This was because JSX compiled to React.createElement() calls, which required React to be in scope. This confused beginners (why import something you're not using?) and bloated code. React 17 introduced a new transform that automatically imports from 'react/jsx-runtime' (the _jsx and _jsxs functions) without needing React in scope. This eliminated the required import, reduced boilerplate, and enabled future optimizations. Vite's @vitejs/plugin-react and modern CRA enable this new transform automatically.",
+    level: "mid"
+  }
+]} />

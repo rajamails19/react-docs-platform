@@ -1,0 +1,501 @@
+---
+title: Analytics Dashboard
+description: Build a production-style analytics dashboard with charts, data tables, filters, and real-time updates.
+category: Real Projects
+order: 2
+slug: projects/dashboard
+difficulty: advanced
+estimatedTime: 45
+tags: [project, dashboard, charts, react query, typescript, recharts, real-world]
+lastUpdated: 2024-01-15
+---
+
+# Analytics Dashboard
+
+Build a **production-style analytics dashboard** — the kind shipped at SaaS companies. This project synthesizes React Query, custom hooks, TypeScript, component composition, and data visualization into a cohesive, real application.
+
+<Callout type="info" title="What you'll build">
+A multi-section dashboard with KPI cards, a line chart for trends, a data table with sorting/filtering/pagination, and a date range selector — all fetching from a mock API with loading and error states handled correctly.
+</Callout>
+
+## What You'll Learn
+
+- Composing a complex UI from focused components
+- Data fetching with React Query (multiple queries, parallel fetching)
+- Recharts for responsive data visualization
+- Sorting, filtering, and paginating a data table
+- Date range selection as URL state
+- TypeScript interfaces for API data shapes
+- Loading skeletons (not spinners) for perceived performance
+
+## Project Structure
+
+```
+src/
+├── features/dashboard/
+│   ├── components/
+│   │   ├── KpiCard.tsx
+│   │   ├── RevenueChart.tsx
+│   │   ├── OrdersTable.tsx
+│   │   ├── DateRangePicker.tsx
+│   │   └── DashboardSkeleton.tsx
+│   ├── hooks/
+│   │   ├── useDashboardData.ts
+│   │   └── useTableSort.ts
+│   ├── types/
+│   │   └── dashboard.ts
+│   └── DashboardPage.tsx
+```
+
+## Step 1 — Define Types
+
+```tsx
+// features/dashboard/types/dashboard.ts
+export interface KpiMetric {
+  id:       string
+  label:    string
+  value:    number
+  change:   number      // % change vs previous period
+  trend:    'up' | 'down' | 'neutral'
+  format:   'currency' | 'number' | 'percentage'
+}
+
+export interface RevenueDataPoint {
+  date:     string      // "2024-01-15"
+  revenue:  number
+  orders:   number
+  refunds:  number
+}
+
+export interface Order {
+  id:       string
+  customer: string
+  email:    string
+  amount:   number
+  status:   'completed' | 'pending' | 'refunded' | 'failed'
+  date:     string
+  country:  string
+}
+
+export interface DashboardData {
+  kpis:         KpiMetric[]
+  revenueChart: RevenueDataPoint[]
+  orders:       Order[]
+  totalOrders:  number
+}
+
+export interface DateRange {
+  from: string
+  to:   string
+}
+```
+
+## Step 2 — Data Fetching Hook
+
+```tsx
+// features/dashboard/hooks/useDashboardData.ts
+import { useQuery } from '@tanstack/react-query'
+import type { DashboardData, DateRange } from '../types/dashboard'
+
+async function fetchDashboard(range: DateRange): Promise<DashboardData> {
+  const params = new URLSearchParams({ from: range.from, to: range.to })
+  const res = await fetch(`/api/dashboard?${params}`)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}
+
+export function useDashboardData(range: DateRange) {
+  return useQuery({
+    queryKey:  ['dashboard', range],
+    queryFn:   () => fetchDashboard(range),
+    staleTime: 60_000,     // 1 minute — dashboard data doesn't need to be live
+    retry: 2,
+  })
+}
+```
+
+## Step 3 — KPI Cards
+
+```tsx
+// features/dashboard/components/KpiCard.tsx
+import { TrendingUp, TrendingDown, Minus } from 'lucide-react'
+import type { KpiMetric } from '../types/dashboard'
+
+function formatValue(value: number, format: KpiMetric['format']): string {
+  switch (format) {
+    case 'currency':
+      return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD',
+        notation: value >= 1_000_000 ? 'compact' : 'standard' }).format(value)
+    case 'percentage':
+      return `${value.toFixed(1)}%`
+    default:
+      return new Intl.NumberFormat('en-US', { notation: value >= 10_000 ? 'compact' : 'standard' }).format(value)
+  }
+}
+
+export function KpiCard({ metric }: { metric: KpiMetric }) {
+  const TrendIcon = metric.trend === 'up' ? TrendingUp : metric.trend === 'down' ? TrendingDown : Minus
+  const trendColor = metric.trend === 'up'
+    ? 'text-emerald-600 dark:text-emerald-400'
+    : metric.trend === 'down'
+    ? 'text-red-500 dark:text-red-400'
+    : 'text-gray-400'
+
+  return (
+    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5">
+      <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">{metric.label}</p>
+      <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">
+        {formatValue(metric.value, metric.format)}
+      </p>
+      <div className={`flex items-center gap-1 text-sm font-medium ${trendColor}`}>
+        <TrendIcon size={14} />
+        <span>{Math.abs(metric.change)}% vs last period</span>
+      </div>
+    </div>
+  )
+}
+```
+
+## Step 4 — Revenue Chart (Recharts)
+
+```tsx
+// features/dashboard/components/RevenueChart.tsx
+import {
+  ResponsiveContainer, AreaChart, Area, XAxis, YAxis,
+  CartesianGrid, Tooltip, Legend,
+} from 'recharts'
+import type { RevenueDataPoint } from '../types/dashboard'
+
+interface Props { data: RevenueDataPoint[] }
+
+export function RevenueChart({ data }: Props) {
+  const formatted = data.map(d => ({
+    ...d,
+    date: new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+  }))
+
+  return (
+    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5">
+      <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4">Revenue Over Time</h3>
+      <ResponsiveContainer width="100%" height={280}>
+        <AreaChart data={formatted}>
+          <defs>
+            <linearGradient id="revenueGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%"  stopColor="#2563eb" stopOpacity={0.15} />
+              <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+          <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+          <YAxis tickFormatter={v => `$${(v/1000).toFixed(0)}k`} tick={{ fontSize: 12 }} />
+          <Tooltip formatter={(value: number) => [`$${value.toLocaleString()}`, 'Revenue']} />
+          <Area
+            type="monotone"
+            dataKey="revenue"
+            stroke="#2563eb"
+            strokeWidth={2}
+            fill="url(#revenueGrad)"
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+```
+
+## Step 5 — Sortable Orders Table
+
+```tsx
+// features/dashboard/hooks/useTableSort.ts
+import { useState, useMemo } from 'react'
+
+type SortDir = 'asc' | 'desc'
+
+export function useTableSort<T>(data: T[], defaultKey: keyof T) {
+  const [sortKey, setSortKey]   = useState<keyof T>(defaultKey)
+  const [sortDir, setSortDir]   = useState<SortDir>('desc')
+
+  const sorted = useMemo(() =>
+    [...data].sort((a, b) => {
+      const aVal = a[sortKey]
+      const bVal = b[sortKey]
+      const cmp  = aVal < bVal ? -1 : aVal > bVal ? 1 : 0
+      return sortDir === 'asc' ? cmp : -cmp
+    }),
+    [data, sortKey, sortDir]
+  )
+
+  const toggleSort = (key: keyof T) => {
+    if (key === sortKey) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(key); setSortDir('desc') }
+  }
+
+  return { sorted, sortKey, sortDir, toggleSort }
+}
+
+// components/OrdersTable.tsx
+const STATUS_STYLES = {
+  completed: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400',
+  pending:   'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400',
+  refunded:  'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400',
+  failed:    'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400',
+}
+
+export function OrdersTable({ orders }: { orders: Order[] }) {
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState<Order['status'] | 'all'>('all')
+  const [page, setPage] = useState(1)
+  const PER_PAGE = 10
+
+  const filtered = useMemo(() =>
+    orders
+      .filter(o => statusFilter === 'all' || o.status === statusFilter)
+      .filter(o =>
+        search === '' ||
+        o.customer.toLowerCase().includes(search.toLowerCase()) ||
+        o.email.toLowerCase().includes(search.toLowerCase())
+      ),
+    [orders, statusFilter, search]
+  )
+
+  const { sorted, sortKey, sortDir, toggleSort } = useTableSort(filtered, 'date')
+  const page_data = sorted.slice((page - 1) * PER_PAGE, page * PER_PAGE)
+  const total_pages = Math.ceil(sorted.length / PER_PAGE)
+
+  return (
+    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
+      {/* Filters */}
+      <div className="flex flex-wrap gap-3 p-4 border-b border-gray-200 dark:border-gray-800">
+        <input
+          value={search}
+          onChange={e => { setSearch(e.target.value); setPage(1) }}
+          placeholder="Search orders..."
+          className="flex-1 min-w-48 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-1.5 text-sm bg-transparent focus:outline-none focus:ring-2 focus:ring-brand-500"
+        />
+        <select
+          value={statusFilter}
+          onChange={e => { setStatusFilter(e.target.value as typeof statusFilter); setPage(1) }}
+          className="rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-1.5 text-sm bg-white dark:bg-gray-900 focus:outline-none"
+        >
+          {['all', 'completed', 'pending', 'refunded', 'failed'].map(s => (
+            <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Table */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50 dark:bg-gray-800/50">
+            <tr>
+              {[
+                { key: 'customer', label: 'Customer' },
+                { key: 'amount',   label: 'Amount' },
+                { key: 'status',   label: 'Status' },
+                { key: 'date',     label: 'Date' },
+              ].map(col => (
+                <th
+                  key={col.key}
+                  className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-900 dark:hover:text-gray-100"
+                  onClick={() => toggleSort(col.key as keyof Order)}
+                >
+                  {col.label} {sortKey === col.key ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+            {page_data.map(order => (
+              <tr key={order.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
+                <td className="px-4 py-3">
+                  <div className="font-medium text-gray-900 dark:text-gray-100">{order.customer}</div>
+                  <div className="text-xs text-gray-400 dark:text-gray-500">{order.email}</div>
+                </td>
+                <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">
+                  ${order.amount.toLocaleString()}
+                </td>
+                <td className="px-4 py-3">
+                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_STYLES[order.status]}`}>
+                    {order.status}
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-gray-500 dark:text-gray-400">
+                  {new Date(order.date).toLocaleDateString()}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Pagination */}
+      <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 dark:border-gray-800 text-sm text-gray-500 dark:text-gray-400">
+        <span>{sorted.length} orders</span>
+        <div className="flex gap-1">
+          <button disabled={page === 1} onClick={() => setPage(p => p - 1)}
+            className="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40">
+            ← Prev
+          </button>
+          <span className="px-3 py-1">{page} / {total_pages}</span>
+          <button disabled={page === total_pages} onClick={() => setPage(p => p + 1)}
+            className="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40">
+            Next →
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+```
+
+## Step 6 — Assemble the Dashboard Page
+
+```tsx
+// features/dashboard/DashboardPage.tsx
+import { useState } from 'react'
+import { KpiCard }      from './components/KpiCard'
+import { RevenueChart } from './components/RevenueChart'
+import { OrdersTable }  from './components/OrdersTable'
+import { useDashboardData } from './hooks/useDashboardData'
+import type { DateRange } from './types/dashboard'
+
+const RANGES = [
+  { label: '7d',  from: daysAgo(7) },
+  { label: '30d', from: daysAgo(30) },
+  { label: '90d', from: daysAgo(90) },
+]
+
+function daysAgo(n: number) {
+  const d = new Date()
+  d.setDate(d.getDate() - n)
+  return d.toISOString().split('T')[0]
+}
+
+function DashboardSkeleton() {
+  return (
+    <div className="animate-pulse space-y-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="h-28 rounded-xl bg-gray-200 dark:bg-gray-800" />
+        ))}
+      </div>
+      <div className="h-80 rounded-xl bg-gray-200 dark:bg-gray-800" />
+      <div className="h-96 rounded-xl bg-gray-200 dark:bg-gray-800" />
+    </div>
+  )
+}
+
+export function DashboardPage() {
+  const today = new Date().toISOString().split('T')[0]
+  const [range, setRange] = useState<DateRange>({ from: daysAgo(30), to: today })
+  const { data, isPending, isError, error } = useDashboardData(range)
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Analytics</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+            {new Date(range.from).toLocaleDateString()} — {new Date(range.to).toLocaleDateString()}
+          </p>
+        </div>
+        <div className="flex gap-1 rounded-lg border border-gray-200 dark:border-gray-700 p-1">
+          {RANGES.map(r => (
+            <button
+              key={r.label}
+              onClick={() => setRange({ from: r.from, to: today })}
+              className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                range.from === r.from
+                  ? 'bg-brand-600 text-white'
+                  : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-100'
+              }`}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {isError && (
+        <div className="rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 p-4 text-sm text-red-700 dark:text-red-300 mb-6">
+          Failed to load dashboard: {error.message}
+        </div>
+      )}
+
+      {isPending ? (
+        <DashboardSkeleton />
+      ) : data ? (
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {data.kpis.map(kpi => <KpiCard key={kpi.id} metric={kpi} />)}
+          </div>
+          <RevenueChart data={data.revenueChart} />
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Recent Orders</h2>
+            <OrdersTable orders={data.orders} />
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+```
+
+## Key Patterns Demonstrated
+
+| Pattern | Where Used |
+|---|---|
+| React Query for server state | `useDashboardData` |
+| Loading skeletons | `DashboardSkeleton` |
+| Custom sort hook | `useTableSort` |
+| Derived state | filtered orders from `useMemo` |
+| Compound components | KpiCard, RevenueChart, OrdersTable |
+| URL-driven date range | `DateRange` state |
+| TypeScript throughout | All interfaces, generics |
+
+## Common Mistakes
+
+```tsx
+// ❌ Fetching in useEffect manually
+useEffect(() => {
+  fetch('/api/dashboard').then(r => r.json()).then(setData)
+}, [range]) // missing loading/error states, no cancellation, no caching
+
+// ✅ React Query handles everything
+const { data, isPending, isError } = useDashboardData(range)
+
+// ❌ Sorting mutates the array
+orders.sort((a, b) => a.amount - b.amount)  // mutates prop!
+
+// ✅ Always spread first
+[...orders].sort((a, b) => a.amount - b.amount)
+```
+
+## What to Show Interviewers
+
+When presenting this project:
+1. **Architecture** — Explain feature-based folder structure
+2. **Data flow** — React Query → component → UI, date range as state
+3. **Performance** — `useMemo` for filtering, skeleton loading, staleTime
+4. **Type safety** — All API shapes typed, hook return types
+5. **Error handling** — Error state UI, retry behavior
+
+## Summary
+
+<Callout type="success" title="What we built">
+A complete analytics dashboard combining React Query data fetching, Recharts visualization, sortable/filterable/paginated data table, and TypeScript throughout — all assembled from focused, testable components.
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "How would you add real-time updates to this dashboard?",
+    answer: "Three approaches: (1) Polling — React Query's refetchInterval: 30000 to refetch every 30s without any code changes. (2) Server-Sent Events (SSE) — useEffect to open an EventSource, listen for 'dashboard-update' events, then call queryClient.invalidateQueries(['dashboard']) to trigger a refetch. (3) WebSockets — similar but bidirectional. SSE is ideal for dashboards (server-to-client only, simpler than WebSockets, works through HTTP/2). Polling is fine for non-critical metrics. WebSockets for sub-second latency requirements.",
+    level: "senior"
+  },
+  {
+    question: "How would you make the data table perform well with 100,000 rows?",
+    answer: "Server-side pagination (fetch page X from API instead of fetching all 100k client-side) + server-side sorting/filtering (pass sort/filter params to the API). The table only ever holds 10-50 rows in memory. If you need client-side only: virtualize with react-window (FixedSizeList) or TanStack Virtual. The useTableSort hook stays but operates on already-filtered server data per page.",
+    level: "senior"
+  }
+]} />

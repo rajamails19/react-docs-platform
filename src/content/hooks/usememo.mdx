@@ -1,0 +1,309 @@
+---
+title: useMemo Hook
+description: Optimize expensive computations and prevent unnecessary recalculations with useMemo memoization.
+category: Hooks
+order: 4
+slug: hooks/usememo
+difficulty: intermediate
+estimatedTime: 12
+tags: [usememo, memoization, performance, optimization, expensive computation]
+lastUpdated: 2024-01-15
+---
+
+# useMemo
+
+`useMemo` memoizes the **result** of a computation. It only recalculates when its dependencies change, preventing expensive work from running on every render.
+
+```tsx
+const memoizedValue = useMemo(() => expensiveComputation(a, b), [a, b])
+```
+
+## The Problem It Solves
+
+Every render re-executes the entire component function body. Expensive operations inside become a performance problem:
+
+```tsx
+function ProductList({ products, category, sortBy }) {
+  // ❌ Recalculates on EVERY render — even unrelated state changes
+  const filtered = products
+    .filter(p => p.category === category)
+    .sort((a, b) => a[sortBy] - b[sortBy])
+    .slice(0, 100)
+
+  return <ul>{filtered.map(p => <ProductRow key={p.id} product={p} />)}</ul>
+}
+```
+
+If `ProductList` re-renders because of a tooltip hover or a parent rerender, this filter+sort runs unnecessarily.
+
+## The Fix: useMemo
+
+```tsx
+function ProductList({ products, category, sortBy }) {
+  // ✅ Only recalculates when products, category, or sortBy changes
+  const filtered = useMemo(() =>
+    products
+      .filter(p => p.category === category)
+      .sort((a, b) => a[sortBy] - b[sortBy])
+      .slice(0, 100),
+    [products, category, sortBy]
+  )
+
+  return <ul>{filtered.map(p => <ProductRow key={p.id} product={p} />)}</ul>
+}
+```
+
+## Real-World Analogy
+
+useMemo is like a **TurboTax filing you've already done**.
+
+- First year: you do all the work (compute taxes)
+- Same income, deductions, filing status: use last year's copy
+- Something changed: redo only the relevant section
+
+## When to Use useMemo
+
+<ComparisonTable
+  columns={[
+    { key: 'use',    label: 'Use useMemo',     highlight: true },
+    { key: 'skip',   label: "Don't bother" },
+  ]}
+  rows={[
+    { feature: 'Computation cost', use: 'Expensive (>1ms)',       skip: 'Cheap (adds, string ops)' },
+    { feature: 'Call frequency',   use: 'Many renders per second', skip: 'Rare re-renders' },
+    { feature: 'Input size',       use: 'Large arrays/objects',    skip: 'Primitive values' },
+    { feature: 'Referential identity', use: 'Object/array passed to memoized child', skip: 'Primitive or only used locally' },
+  ]}
+/>
+
+<Callout type="warning" title="Don't over-optimize">
+useMemo has a cost: the dependency comparison itself and storing the cached value. Wrapping trivial operations in useMemo can make performance worse. Profile first, optimize second.
+</Callout>
+
+## Interactive Example — See the Speedup
+
+Toggle useMemo off/on and type in the input. Watch the computation time counter:
+
+<LiveEditor code={`import { useState, useMemo, useRef } from 'react'
+
+// Deliberately slow Fibonacci (exponential time)
+function slowFib(n: number): number {
+  if (n <= 1) return n
+  return slowFib(n - 1) + slowFib(n - 2)
+}
+
+export default function MemoDemo() {
+  const [n, setN]           = useState(30)
+  const [enabled, setEnabled] = useState(true)
+  const [tick, setTick]     = useState(0)  // forces re-renders
+  const computeCount        = useRef(0)
+  const lastMs              = useRef(0)
+
+  const result = useMemo(() => {
+    if (!enabled) {
+      // Without memo: always recompute
+      computeCount.current++
+      const start = performance.now()
+      const v = slowFib(n)
+      lastMs.current = +(performance.now() - start).toFixed(1)
+      return v
+    }
+    computeCount.current++
+    const start = performance.now()
+    const v = slowFib(n)
+    lastMs.current = +(performance.now() - start).toFixed(1)
+    return v
+  }, enabled ? [n] : [n, tick])
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: 24, maxWidth: 480 }}>
+      <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>Fibonacci Calculator</h3>
+
+      <label style={{ display: 'block', marginBottom: 12, fontSize: 14 }}>
+        N = <strong>{n}</strong>
+        <input
+          type="range" min={25} max={38} value={n}
+          onChange={e => setN(+e.target.value)}
+          style={{ display: 'block', width: '100%', marginTop: 4 }}
+        />
+      </label>
+
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, fontSize: 14, cursor: 'pointer' }}>
+        <input
+          type="checkbox" checked={enabled}
+          onChange={e => setEnabled(e.target.checked)}
+          style={{ width: 16, height: 16 }}
+        />
+        useMemo enabled
+      </label>
+
+      <button
+        onClick={() => setTick(t => t + 1)}
+        style={{ marginBottom: 16, padding: '8px 16px', background: '#6366f1', color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer' }}
+      >
+        Force re-render (unrelated state)
+      </button>
+
+      <div style={{ padding: 16, background: '#f9fafb', borderRadius: 10, border: '1px solid #e5e7eb' }}>
+        <div style={{ fontSize: 24, fontWeight: 700 }}>fib({n}) = {result}</div>
+        <div style={{ marginTop: 8, fontSize: 13, color: '#6b7280' }}>
+          Computed {computeCount.current}× — last took <strong>{lastMs.current}ms</strong>
+        </div>
+        {!enabled && (
+          <div style={{ marginTop: 6, fontSize: 12, color: '#ef4444' }}>
+            ⚠ useMemo OFF — recomputes on every unrelated re-render
+          </div>
+        )}
+        {enabled && tick > 0 && (
+          <div style={{ marginTop: 6, fontSize: 12, color: '#22c55e' }}>
+            ✓ useMemo ON — skipped recompute on re-render (n unchanged)
+          </div>
+        )}
+      </div>
+
+      <p style={{ marginTop: 12, fontSize: 12, color: '#9ca3af' }}>
+        Click "Force re-render" with useMemo OFF to see the delay each time.
+      </p>
+    </div>
+  )
+}`} />
+
+<Challenge title="Memoize a filtered list">
+You have a product list that filters based on a search term. A separate `tick` state causes re-renders.
+
+Without `useMemo`, the filter runs on every re-render. Add `useMemo` to fix it.
+
+```tsx
+const filtered = products.filter(p =>
+  p.name.toLowerCase().includes(query.toLowerCase())
+)
+// Wrap this in useMemo — what should the dependency array be?
+```
+</Challenge>
+
+## Measuring With useMemo
+
+```tsx
+import { useMemo, useRef } from 'react'
+
+function ExpensiveComponent({ data }: { data: number[] }) {
+  const renderCount = useRef(0)
+
+  const result = useMemo(() => {
+    const start = performance.now()
+
+    // Simulate expensive operation
+    const computed = data.reduce((acc, val) => {
+      let res = val
+      for (let i = 0; i < 10000; i++) res = Math.sqrt(res + i)
+      return acc + res
+    }, 0)
+
+    const duration = performance.now() - start
+    console.log(`Computed in ${duration.toFixed(2)}ms`)
+
+    return computed
+  }, [data])
+
+  renderCount.current++
+
+  return (
+    <div>
+      <p>Result: {result.toFixed(4)}</p>
+      <p>Renders: {renderCount.current}</p>
+    </div>
+  )
+}
+```
+
+## Stable References for Child Components
+
+useMemo is critical when passing objects or arrays to `React.memo`-wrapped children:
+
+```tsx
+function Parent({ userId }: { userId: string }) {
+  const [theme, setTheme] = useState('light')
+
+  // ❌ New object reference on every render → MemoChild always re-renders
+  const config = { userId, role: 'admin' }
+
+  // ✅ Stable reference → MemoChild only re-renders when userId changes
+  const config = useMemo(() => ({ userId, role: 'admin' }), [userId])
+
+  return (
+    <div>
+      <button onClick={() => setTheme(t => t === 'light' ? 'dark' : 'light')}>
+        Theme: {theme}
+      </button>
+      <MemoChild config={config} />  {/* Won't re-render on theme change */}
+    </div>
+  )
+}
+
+const MemoChild = React.memo(({ config }: { config: Config }) => {
+  console.log('MemoChild rendered')
+  return <div>{config.userId}</div>
+})
+```
+
+## useMemo vs useCallback
+
+| | `useMemo` | `useCallback` |
+|---|---|---|
+| Memoizes | Return value of a function | The function itself |
+| Use case | Computed values, transformed data | Event handlers, callbacks |
+| Example | `useMemo(() => data.filter(...), [data])` | `useCallback(() => handleClick(), [dep])` |
+| Equivalent | `useCallback(fn, deps)` === `useMemo(() => fn, deps)` | Same |
+
+```tsx
+// These are equivalent:
+const fn = useCallback(() => doSomething(a), [a])
+const fn = useMemo(() => () => doSomething(a), [a])
+```
+
+## Common Mistakes
+
+```tsx
+// ❌ Wrapping cheap operations
+const doubled = useMemo(() => count * 2, [count])   // trivial — no benefit
+
+// ❌ Wrong dependencies (stale data)
+const filtered = useMemo(() =>
+  products.filter(p => p.active),
+  []  // missing [products] → filtered is stale when products updates!
+)
+
+// ❌ Using useMemo as a side-effect mechanism
+const _ = useMemo(() => {
+  analytics.track('view', { page })   // ← this is a side effect, use useEffect!
+  return null
+}, [page])
+```
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- `useMemo` caches expensive computed values and only recalculates when dependencies change
+- Use it for truly expensive operations (filtering/sorting large arrays, complex math)
+- Critical for **stable references** when passing objects to `React.memo` children
+- Don't over-use — the overhead isn't worth it for cheap computations
+- `useCallback` is `useMemo` for functions
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "What does useMemo do and when should you use it?",
+    answer: "useMemo memoizes the result of a computation. It accepts a factory function and a dependency array; the factory runs only when dependencies change, returning a cached value otherwise. Use it when: (1) a computation is expensive (sorting/filtering large arrays, complex calculations), (2) you need a stable reference for an object/array passed to a memoized child component (to prevent unnecessary re-renders), (3) a value is used as a dependency in another hook and you need reference stability.",
+    level: "junior"
+  },
+  {
+    question: "Explain the difference between useMemo and useCallback.",
+    answer: "useMemo memoizes the return value of a function: useMemo(() => compute(a, b), [a, b]) caches whatever the function returns. useCallback memoizes the function itself: useCallback(() => handleClick(id), [id]) caches the function reference. useCallback(fn, deps) is exactly equivalent to useMemo(() => fn, deps). useCallback is syntactic sugar for useMemo when the cached thing is a function. Use useMemo for computed values, useCallback for event handlers passed to memoized children.",
+    level: "mid"
+  },
+  {
+    question: "How do you decide if a computation is expensive enough to warrant useMemo?",
+    answer: "Profile first: React DevTools Profiler shows component render durations. A rough heuristic: if a computation consistently takes >1ms, consider memoizing. You can also manually time with performance.now(). But the bigger use case for useMemo is reference stability for React.memo children, not raw computation speed — in that case the cost threshold is lower because avoiding even cheap re-renders in large trees has cumulative benefit. The ESLint rule react-hooks/exhaustive-deps helps ensure you don't have stale dependencies.",
+    level: "senior"
+  }
+]} />

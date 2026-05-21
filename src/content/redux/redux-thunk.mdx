@@ -1,0 +1,575 @@
+---
+title: Redux Thunk & createAsyncThunk
+description: Master async logic in Redux Toolkit with createAsyncThunk — lifecycle actions, error handling, cancellation, and real-world patterns for fetching paginated data.
+category: Redux
+order: 2
+slug: redux/redux-thunk
+difficulty: advanced
+estimatedTime: 25
+tags: [redux, redux toolkit, createAsyncThunk, thunk, async, middleware, rejectWithValue, AbortController, loading state]
+lastUpdated: 2024-01-15
+---
+
+# Redux Thunk & createAsyncThunk
+
+Redux is synchronous by design. Dispatching an action immediately produces a new state — no network calls, no delays. **Thunk middleware** bridges that gap by letting you dispatch functions instead of plain objects. Redux Toolkit ships thunk middleware by default and provides `createAsyncThunk` as the ergonomic, type-safe way to write async logic.
+
+<Callout type="info" title="What is a thunk?">
+A thunk is simply a function that wraps an expression to delay its evaluation. In Redux, a thunk is a function that receives `dispatch` and `getState` as arguments, letting you read current state and dispatch multiple actions over time — including after async work completes.
+</Callout>
+
+## How Thunk Middleware Works
+
+Without middleware, `store.dispatch` only accepts plain objects. The thunk middleware intercepts any dispatched function, calls it with `(dispatch, getState)`, and lets the result fall through. Everything else reaches the reducer unchanged.
+
+<MermaidDiagram chart={`
+sequenceDiagram
+  participant C as Component
+  participant M as Thunk Middleware
+  participant R as Reducer
+  participant A as API
+
+  C->>M: dispatch(fetchUsers(params))
+  M->>M: detect function, invoke it
+  M->>R: dispatch({ type: "users/fetchUsers/pending" })
+  M->>A: fetch("/api/users")
+  A-->>M: response
+  M->>R: dispatch({ type: "users/fetchUsers/fulfilled", payload })
+  R-->>C: new state via useSelector
+`} caption="Thunk middleware intercepts the function and manages the async lifecycle" />
+
+## createAsyncThunk — The Basics
+
+`createAsyncThunk` accepts two arguments: a **string action type prefix** and an **async payload creator**. It returns a thunk action creator that, when dispatched, automatically dispatches `pending`, `fulfilled`, or `rejected` actions.
+
+```tsx
+// src/features/users/usersThunks.ts
+import { createAsyncThunk } from '@reduxjs/toolkit'
+import type { RootState } from '../../app/store'
+
+export interface User {
+  id: number
+  name: string
+  email: string
+  role: 'admin' | 'editor' | 'viewer'
+  createdAt: string
+}
+
+export interface UsersPage {
+  users: User[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+export interface FetchUsersParams {
+  page: number
+  pageSize: number
+  role?: User['role']
+  search?: string
+}
+
+export interface FetchUsersError {
+  message: string
+  statusCode: number
+}
+
+export const fetchUsers = createAsyncThunk<
+  UsersPage,           // fulfilled payload type
+  FetchUsersParams,    // argument type
+  {
+    state: RootState
+    rejectValue: FetchUsersError
+  }
+>(
+  'users/fetchUsers',
+  async (params, { getState, rejectWithValue, signal }) => {
+    const { auth } = getState()
+    const url = new URL('/api/users', import.meta.env.VITE_API_BASE)
+    url.searchParams.set('page', String(params.page))
+    url.searchParams.set('pageSize', String(params.pageSize))
+    if (params.role)   url.searchParams.set('role', params.role)
+    if (params.search) url.searchParams.set('search', params.search)
+
+    const response = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${auth.token}` },
+      signal, // ← AbortController signal for cancellation
+    })
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}))
+      return rejectWithValue({
+        message: body.message ?? 'Failed to fetch users',
+        statusCode: response.status,
+      })
+    }
+
+    return response.json() as Promise<UsersPage>
+  }
+)
+```
+
+## The Three Lifecycle Actions
+
+Every `createAsyncThunk` call produces three action types automatically:
+
+| Action | When dispatched | `action.payload` |
+|---|---|---|
+| `users/fetchUsers/pending` | Immediately on dispatch | `undefined` |
+| `users/fetchUsers/fulfilled` | Payload creator resolves | Return value of the async fn |
+| `users/fetchUsers/rejected` | Payload creator throws or `rejectWithValue` | Error or rejected value |
+
+<Callout type="tip" title="Access the action types">
+You can access the generated action type strings via `fetchUsers.pending.type`, `fetchUsers.fulfilled.type`, and `fetchUsers.rejected.type`. This is handy for middleware or testing without hardcoding strings.
+</Callout>
+
+## Handling Lifecycle Actions in extraReducers
+
+Slices use `extraReducers` with the **builder callback pattern** to handle actions from other slices or thunks. The builder API is fully type-safe with TypeScript.
+
+```tsx
+// src/features/users/usersSlice.ts
+import { createSlice } from '@reduxjs/toolkit'
+import { fetchUsers } from './usersThunks'
+import type { User, UsersPage, FetchUsersError } from './usersThunks'
+
+interface UsersState {
+  items: User[]
+  total: number
+  page: number
+  pageSize: number
+  status: 'idle' | 'loading' | 'succeeded' | 'failed'
+  error: FetchUsersError | null
+}
+
+const initialState: UsersState = {
+  items: [],
+  total: 0,
+  page: 1,
+  pageSize: 20,
+  status: 'idle',
+  error: null,
+}
+
+const usersSlice = createSlice({
+  name: 'users',
+  initialState,
+  reducers: {
+    // Synchronous actions live here
+    resetUsers(state) {
+      Object.assign(state, initialState)
+    },
+  },
+  extraReducers: (builder) => {
+    builder
+      .addCase(fetchUsers.pending, (state) => {
+        state.status = 'loading'
+        state.error = null
+      })
+      .addCase(fetchUsers.fulfilled, (state, action) => {
+        state.status = 'succeeded'
+        state.items = action.payload.users
+        state.total = action.payload.total
+        state.page = action.payload.page
+        state.pageSize = action.payload.pageSize
+      })
+      .addCase(fetchUsers.rejected, (state, action) => {
+        state.status = 'failed'
+        // action.payload is FetchUsersError when rejectWithValue was used
+        // action.error is the serialized error when the async fn threw
+        state.error = action.payload ?? {
+          message: action.error.message ?? 'Unknown error',
+          statusCode: 0,
+        }
+      })
+  },
+})
+
+export const { resetUsers } = usersSlice.actions
+export default usersSlice.reducer
+```
+
+<Callout type="warning" title="builder vs object notation">
+Redux Toolkit supports both `builder.addCase(...)` and the object shorthand `{ [fetchUsers.fulfilled]: handler }`. Always use the **builder callback** form — it is the only form that provides full TypeScript inference. The object form loses action payload types.
+</Callout>
+
+## rejectWithValue — Custom Error Payloads
+
+By default, when your payload creator throws, RTK serializes the error into `action.error` (only primitive fields survive serialization). `rejectWithValue` lets you attach a rich, typed error object to `action.payload` instead.
+
+```tsx
+// Payload creator — the thunk body
+async (params, { rejectWithValue }) => {
+  try {
+    const res = await apiClient.get<UsersPage>('/users', { params })
+    return res.data
+  } catch (err) {
+    if (axios.isAxiosError(err) && err.response) {
+      // Structured error reaches the slice as action.payload
+      return rejectWithValue({
+        message: err.response.data.message ?? err.message,
+        statusCode: err.response.status,
+      })
+    }
+    // Unhandled errors become action.error (serialized)
+    throw err
+  }
+}
+```
+
+```tsx
+// In extraReducers — distinguish payload vs error
+.addCase(fetchUsers.rejected, (state, action) => {
+  state.status = 'failed'
+  if (action.payload) {
+    // rejectWithValue path — fully typed
+    state.error = action.payload          // FetchUsersError
+  } else {
+    // Thrown error path — action.error.message is string | undefined
+    state.error = { message: action.error.message ?? 'Network error', statusCode: 0 }
+  }
+})
+```
+
+## Passing Arguments to Thunks
+
+The second argument to `createAsyncThunk` (the payload creator) receives your single argument. Pass a single object when you need multiple values — this keeps the API clean and extensible.
+
+```tsx
+// Single primitive argument
+export const fetchUserById = createAsyncThunk<User, number>(
+  'users/fetchById',
+  async (userId, { rejectWithValue }) => {
+    const res = await fetch(`/api/users/${userId}`)
+    if (!res.ok) return rejectWithValue({ message: 'Not found', statusCode: 404 })
+    return res.json()
+  }
+)
+
+// Object argument (preferred for multiple values)
+export const updateUser = createAsyncThunk<User, { id: number; data: Partial<User> }>(
+  'users/updateUser',
+  async ({ id, data }, { rejectWithValue }) => {
+    const res = await fetch(`/api/users/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    })
+    if (!res.ok) return rejectWithValue({ message: 'Update failed', statusCode: res.status })
+    return res.json()
+  }
+)
+```
+
+## Dispatching Multiple Actions Inside a Thunk
+
+The `dispatch` function passed to the payload creator lets you trigger side effects — update loading indicators, show toasts, or chain other thunks.
+
+```tsx
+// src/features/users/usersThunks.ts
+import { createAsyncThunk } from '@reduxjs/toolkit'
+import { showToast } from '../notifications/notificationsSlice'
+import { setFilter } from '../filters/filtersSlice'
+
+export const deleteUserAndRefresh = createAsyncThunk<
+  void,
+  number,
+  { state: RootState; rejectValue: FetchUsersError }
+>(
+  'users/deleteAndRefresh',
+  async (userId, { dispatch, getState, rejectWithValue }) => {
+    const res = await fetch(`/api/users/${userId}`, { method: 'DELETE' })
+    if (!res.ok) {
+      dispatch(showToast({ type: 'error', message: 'Failed to delete user' }))
+      return rejectWithValue({ message: 'Delete failed', statusCode: res.status })
+    }
+
+    dispatch(showToast({ type: 'success', message: 'User deleted' }))
+
+    // Re-fetch the current page after deletion
+    const { users } = getState()
+    dispatch(fetchUsers({ page: users.page, pageSize: users.pageSize }))
+  }
+)
+```
+
+<Callout type="tip" title="Chaining thunks">
+You can `await dispatch(otherThunk(args))` inside a payload creator. The dispatched thunk returns a promise that resolves with `{ payload }` on success or `{ error }` on failure. Check `.unwrap()` on the result to either get the payload or throw the error — making chaining straightforward.
+</Callout>
+
+## Sequential vs Parallel Dispatching
+
+Knowing when to await thunks sequentially versus fire them in parallel is critical for correctness and performance.
+
+```tsx
+// Sequential — each thunk depends on the previous result
+export const setupDashboard = createAsyncThunk<void, void>(
+  'dashboard/setup',
+  async (_, { dispatch }) => {
+    // Step 1: authenticate
+    await dispatch(refreshToken()).unwrap()
+
+    // Step 2: depends on valid token
+    await dispatch(fetchCurrentUser()).unwrap()
+
+    // Step 3: depends on user profile
+    await dispatch(fetchUserPermissions()).unwrap()
+  }
+)
+
+// Parallel — independent data, fetch simultaneously
+export const loadDashboardData = createAsyncThunk<void, void>(
+  'dashboard/loadData',
+  async (_, { dispatch }) => {
+    await Promise.all([
+      dispatch(fetchUsers({ page: 1, pageSize: 20 })).unwrap(),
+      dispatch(fetchStats()).unwrap(),
+      dispatch(fetchRecentActivity()).unwrap(),
+    ])
+  }
+)
+```
+
+## Cancellation with AbortController
+
+`createAsyncThunk` exposes an `AbortSignal` via the `signal` argument. React 18's `useEffect` cleanup is the perfect place to abort in-flight requests.
+
+```tsx
+// usersThunks.ts — pass signal to fetch
+export const fetchUsers = createAsyncThunk<UsersPage, FetchUsersParams>(
+  'users/fetchUsers',
+  async (params, { signal, rejectWithValue }) => {
+    const res = await fetch(`/api/users?${new URLSearchParams(params as any)}`, {
+      signal, // ← AbortController signal wired up automatically
+    })
+    if (!res.ok) return rejectWithValue({ message: 'Failed', statusCode: res.status })
+    return res.json()
+  }
+)
+```
+
+```tsx
+// UserList.tsx — cancel on unmount or dependency change
+import { useEffect, useRef } from 'react'
+import { useAppDispatch } from '../../app/hooks'
+import { fetchUsers } from './usersThunks'
+
+interface Props { page: number; search: string }
+
+export function UserList({ page, search }: Props) {
+  const dispatch = useAppDispatch()
+
+  useEffect(() => {
+    // dispatch returns the thunk promise, which has an .abort() method
+    const promise = dispatch(fetchUsers({ page, pageSize: 20, search }))
+
+    return () => {
+      promise.abort() // ← triggers AbortSignal, fetch throws AbortError
+    }
+  }, [dispatch, page, search])
+
+  // render ...
+}
+```
+
+<Callout type="info" title="AbortError is not a rejected action">
+When `.abort()` is called, the thunk's rejected action is dispatched with `action.error.name === 'AbortError'`. You can check `fetchUsers.rejected.match(action) && action.meta.aborted` to distinguish cancellation from a real error and skip updating state accordingly.
+</Callout>
+
+## Full Example: Paginated User List with Filters
+
+Here is a complete, production-ready feature — slice, thunk, selector, and component — wired together.
+
+```tsx
+// src/features/users/usersSelectors.ts
+import type { RootState } from '../../app/store'
+
+export const selectUsers        = (state: RootState) => state.users.items
+export const selectUsersStatus  = (state: RootState) => state.users.status
+export const selectUsersError   = (state: RootState) => state.users.error
+export const selectUsersTotal   = (state: RootState) => state.users.total
+export const selectUsersPage    = (state: RootState) => state.users.page
+export const selectUsersPageSize = (state: RootState) => state.users.pageSize
+```
+
+```tsx
+// src/features/users/UserListPage.tsx
+import { useEffect, useState, useCallback } from 'react'
+import { useAppDispatch, useAppSelector } from '../../app/hooks'
+import {
+  selectUsers,
+  selectUsersStatus,
+  selectUsersError,
+  selectUsersTotal,
+  selectUsersPage,
+  selectUsersPageSize,
+} from './usersSelectors'
+import { fetchUsers } from './usersThunks'
+import { resetUsers } from './usersSlice'
+import type { User } from './usersThunks'
+
+export function UserListPage() {
+  const dispatch    = useAppDispatch()
+  const users       = useAppSelector(selectUsers)
+  const status      = useAppSelector(selectUsersStatus)
+  const error       = useAppSelector(selectUsersError)
+  const total       = useAppSelector(selectUsersTotal)
+  const page        = useAppSelector(selectUsersPage)
+  const pageSize    = useAppSelector(selectUsersPageSize)
+
+  const [search, setSearch] = useState('')
+  const [role, setRole]     = useState<User['role'] | ''>('')
+
+  const load = useCallback(() => {
+    const promise = dispatch(
+      fetchUsers({ page, pageSize, search: search || undefined, role: role || undefined })
+    )
+    return () => promise.abort()
+  }, [dispatch, page, pageSize, search, role])
+
+  useEffect(() => {
+    const abort = load()
+    return abort
+  }, [load])
+
+  // Cleanup on unmount
+  useEffect(() => () => { dispatch(resetUsers()) }, [dispatch])
+
+  if (status === 'loading') return <p>Loading users…</p>
+  if (status === 'failed')  return (
+    <div role="alert">
+      <p>Error {error?.statusCode}: {error?.message}</p>
+      <button onClick={load}>Retry</button>
+    </div>
+  )
+
+  return (
+    <div>
+      <input
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        placeholder="Search users…"
+      />
+      <select value={role} onChange={e => setRole(e.target.value as User['role'] | '')}>
+        <option value="">All roles</option>
+        <option value="admin">Admin</option>
+        <option value="editor">Editor</option>
+        <option value="viewer">Viewer</option>
+      </select>
+
+      <p>{total} users found</p>
+      <ul>
+        {users.map(u => (
+          <li key={u.id}>{u.name} — {u.role}</li>
+        ))}
+      </ul>
+
+      <button disabled={page <= 1}
+        onClick={() => dispatch(fetchUsers({ page: page - 1, pageSize }))}>
+        Previous
+      </button>
+      <span> Page {page} of {Math.ceil(total / pageSize)} </span>
+      <button disabled={page * pageSize >= total}
+        onClick={() => dispatch(fetchUsers({ page: page + 1, pageSize }))}>
+        Next
+      </button>
+    </div>
+  )
+}
+```
+
+## Loading / Error / Data State Pattern
+
+This pattern is the backbone of async Redux. Encode status as a discriminated union to get exhaustive type checking.
+
+```tsx
+// Typed status pattern
+type AsyncStatus = 'idle' | 'loading' | 'succeeded' | 'failed'
+
+// Component switch
+switch (status) {
+  case 'idle':      return null
+  case 'loading':   return <Skeleton />
+  case 'failed':    return <ErrorMessage error={error} />
+  case 'succeeded': return <DataView data={users} />
+}
+```
+
+<Callout type="success" title="Status vs boolean flags">
+Prefer a single `status` field over multiple boolean flags (`isLoading`, `isError`, `isSuccess`). Booleans allow impossible states — `isLoading: true, isError: true` should never happen. A status union makes illegal states unrepresentable.
+</Callout>
+
+<MermaidDiagram chart={`
+stateDiagram-v2
+  [*] --> idle
+  idle --> loading: dispatch(fetchUsers)
+  loading --> succeeded: fetch resolves
+  loading --> failed: fetch rejects / rejectWithValue
+  failed --> loading: retry dispatch
+  succeeded --> loading: new params dispatched
+  succeeded --> idle: resetUsers()
+`} caption="State machine for async fetch status" />
+
+## Typed App Hooks
+
+Always create typed versions of `useDispatch` and `useSelector` — never use the raw hooks.
+
+```tsx
+// src/app/hooks.ts
+import { useDispatch, useSelector } from 'react-redux'
+import type { AppDispatch, RootState } from './store'
+
+// AppDispatch knows about thunks — raw useDispatch does not
+export const useAppDispatch = () => useDispatch<AppDispatch>()
+export const useAppSelector: TypedUseSelectorHook<RootState> =
+  (selector) => useSelector(selector)
+```
+
+```tsx
+// src/app/store.ts
+import { configureStore } from '@reduxjs/toolkit'
+import usersReducer from '../features/users/usersSlice'
+
+export const store = configureStore({
+  reducer: { users: usersReducer },
+})
+
+export type RootState   = ReturnType<typeof store.getState>
+export type AppDispatch = typeof store.dispatch
+```
+
+<InterviewQA questions={[
+  {
+    question: "What is the difference between action.payload and action.error in a rejected thunk action?",
+    answer: "When rejectWithValue(data) is called inside a payload creator, the rejected action carries your custom data on action.payload and action.error is a minimal serialized error. When the payload creator throws an unhandled exception, action.payload is undefined and action.error contains the serialized error (only string-serializable fields like message, name, stack). Using rejectWithValue lets you attach a fully typed, rich error object that survives the Redux serialization boundary.",
+    level: "intermediate"
+  },
+  {
+    question: "How does createAsyncThunk handle AbortController under the hood, and how do you use it in React?",
+    answer: "createAsyncThunk creates an AbortController internally and passes its signal to the payload creator as thunkAPI.signal. The dispatched thunk returns a special promise that has an .abort() method. Calling promise.abort() calls controller.abort(), which sets the signal to aborted. If you pass the signal to fetch(), the request is cancelled and fetch throws an AbortError. In React, store the promise returned by dispatch() in a ref or variable, and call promise.abort() in the useEffect cleanup function. The rejected action that results will have action.meta.aborted === true, letting you skip state updates for cancelled requests.",
+    level: "advanced"
+  },
+  {
+    question: "Why should you use the builder callback form of extraReducers rather than the map object shorthand?",
+    answer: "The builder callback form (builder.addCase, builder.addMatcher, builder.addDefaultCase) is the only form that provides full TypeScript type inference. The action creator passed to addCase narrows the action type inside the handler, so action.payload is correctly typed without any casting. The object notation shorthand loses this inference — TypeScript cannot narrow the action type when keys are dynamic strings, so you get action: AnyAction, which defeats the purpose of typed Redux.",
+    level: "intermediate"
+  },
+  {
+    question: "When should you choose sequential dispatch with await versus parallel dispatch with Promise.all inside a thunk?",
+    answer: "Use sequential await dispatch(...).unwrap() when each step depends on data or side effects from the previous one — for example, refreshing a token before making an authenticated request, or creating a resource before uploading files tied to it. Use Promise.all([dispatch(a), dispatch(b)]) when the thunks are independent — fetching stats, recent activity, and user list for a dashboard simultaneously cuts total wait time to the slowest of the three rather than their sum. Mixing both is common: authenticate sequentially, then fan out parallel data fetches.",
+    level: "advanced"
+  }
+]} />
+
+<ComparisonTable
+  columns={["Feature", "Raw Thunk (by hand)", "createAsyncThunk"]}
+  rows={[
+    ["Lifecycle actions", "Write manually", "Auto-generated (pending/fulfilled/rejected)"],
+    ["TypeScript support", "Manual typing required", "Full generics inference"],
+    ["Cancellation", "Manual AbortController wiring", "Built-in via thunkAPI.signal"],
+    ["Error handling", "Try/catch + manual dispatch", "rejectWithValue for typed payloads"],
+    ["getState access", "Yes, via thunkAPI", "Yes, typed via RootState generic"],
+    ["Loading state", "Manage manually", "pending action drives status"],
+    ["DevTools", "Actions visible", "Actions visible with clear naming"]
+  ]}
+/>

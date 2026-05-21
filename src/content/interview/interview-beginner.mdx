@@ -1,0 +1,95 @@
+---
+title: Beginner Interview Questions
+description: The React interview questions every junior developer must know — fundamentals, hooks basics, and JSX.
+category: Interview Prep
+order: 1
+slug: interview/interview-beginner
+difficulty: beginner
+estimatedTime: 20
+tags: [interview, junior, beginner, React basics, hooks, JSX, state, props]
+lastUpdated: 2024-01-15
+---
+
+# Beginner React Interview Questions
+
+These are the questions you'll face in entry-level and junior React roles. Master these before moving to mid-level questions.
+
+## Core Concepts
+
+<InterviewQA questions={[
+  {
+    question: "What is React and why use it?",
+    answer: "React is a JavaScript library for building user interfaces. It was created by Facebook in 2013 to solve the problem of keeping UI in sync with data. Key reasons to use it: (1) Component model — break UI into reusable pieces. (2) Declarative — describe what the UI should look like for each state, React updates the DOM. (3) Virtual DOM — React batches DOM updates for performance. (4) Huge ecosystem — thousands of libraries, large community, used by most major companies.",
+    level: "junior"
+  },
+  {
+    question: "What is JSX?",
+    answer: "JSX is a syntax extension for JavaScript that looks like HTML. It compiles to React.createElement() calls. For example, <h1>Hello</h1> compiles to React.createElement('h1', null, 'Hello'). JSX is not required but is the standard way to write React. Key rules: one root element per return, all tags must be closed, use className instead of class, use camelCase for attributes.",
+    level: "junior"
+  },
+  {
+    question: "What is the difference between state and props?",
+    answer: "Props are inputs passed from a parent to a child component — they're read-only from the child's perspective, like function arguments. State is internal data managed by the component itself — it's mutable and when it changes, the component re-renders. Think of props as external configuration and state as the component's memory. A button's label would be a prop (set by parent); a toggle's on/off would be state (managed internally).",
+    level: "junior"
+  },
+  {
+    question: "What is the Virtual DOM?",
+    answer: "The Virtual DOM is a lightweight JavaScript representation of the actual DOM. When state changes, React creates a new Virtual DOM tree and compares it to the previous one (diffing). It then calculates the minimum changes needed and applies only those to the real DOM (reconciliation). This is more efficient than directly manipulating the DOM on every change because DOM operations are slow. Note: with React 18's concurrent features, 'Virtual DOM' is somewhat simplified — React uses a fiber architecture that can interrupt and resume rendering work.",
+    level: "junior"
+  },
+  {
+    question: "What is a React component?",
+    answer: "A component is a reusable piece of UI. In modern React, components are JavaScript functions that accept props and return JSX. There are two types: functional components (functions, the standard since React 16.8) and class components (ES6 classes, the old way). Components can be composed — you put components inside other components to build complex UIs. A component should do one thing well (single responsibility).",
+    level: "junior"
+  }
+]} />
+
+## Hooks
+
+<InterviewQA questions={[
+  {
+    question: "What is useState and how does it work?",
+    answer: "useState is a hook that adds state to functional components. It takes an initial value and returns a pair: the current state value and a setter function. const [count, setCount] = useState(0). When you call the setter, React re-renders the component with the new state. State is preserved between renders. Important: state updates may be batched, and the setter doesn't immediately mutate the state — the updated value is available on the next render.",
+    level: "junior"
+  },
+  {
+    question: "What is useEffect and when do you use it?",
+    answer: "useEffect runs side effects after the component renders. Side effects include: fetching data, setting up subscriptions, manually changing the DOM, starting timers. It takes a function and a dependency array. With empty deps [], it runs once after mount. With [value], it runs after mount and whenever value changes. Without deps, it runs after every render. The function can return a cleanup function that runs before the next effect or on unmount.",
+    level: "junior"
+  },
+  {
+    question: "What are the Rules of Hooks?",
+    answer: "Two rules: (1) Only call hooks at the top level — not inside loops, conditions, or nested functions. This ensures hooks are called in the same order on every render, which is how React tracks which hook corresponds to which state. (2) Only call hooks from React functions — functional components or custom hooks, not regular JavaScript functions. The eslint-plugin-react-hooks enforces these rules automatically.",
+    level: "junior"
+  }
+]} />
+
+## Component Lifecycle
+
+<InterviewQA questions={[
+  {
+    question: "What happens when setState is called?",
+    answer: "Calling setState (or a useState setter): (1) React schedules a re-render — it doesn't happen synchronously. (2) On the next render, the component function runs with the new state value. (3) React compares the new render output to the previous (reconciliation). (4) React updates only the changed parts of the DOM. Multiple setState calls in the same event handler are batched in React 18 — only one re-render happens. The state variable doesn't change during the current render — you'll only see the new value on the next render.",
+    level: "junior"
+  },
+  {
+    question: "What is prop drilling and what's the problem with it?",
+    answer: "Prop drilling is passing props through multiple intermediate components that don't use the props themselves — they just forward them to children deeper in the tree. The problem: components become tightly coupled to their ancestors, making refactoring hard. If you need to add a level to the component tree, every level must be updated. Solutions: Context API (for global/shared state), composition (passing components as children), or state management libraries like Redux or Zustand.",
+    level: "junior"
+  },
+  {
+    question: "What is a key prop and why does React need it for lists?",
+    answer: "The key prop is a unique identifier React uses to track which list items have changed, been added, or removed. Without keys, React re-renders the entire list on any change. With stable keys, React can efficiently update only the changed items. Keys must be: unique among siblings, stable (don't use array index if the list is reordered or filtered — use an ID from the data), and strings or numbers. Bad keys: Math.random() (changes every render), array index (wrong item gets updated when list reorders).",
+    level: "junior"
+  }
+]} />
+
+## Summary
+
+<Callout type="success" title="Key Takeaways for Junior Interviews">
+- Know the React mental model: UI = f(state). Components render based on props and state.
+- Understand the difference: props (read-only, from parent), state (mutable, internal)
+- Know the three useEffect dependency patterns and when to use each
+- Be able to explain why keys are needed in lists (not just "React needs it")
+- Know the Rules of Hooks and why they exist (consistent hook call order)
+</Callout>

@@ -1,0 +1,178 @@
+---
+title: Next.js App Router
+description: Master the App Router — Next.js 13+ file-system routing with layouts, loading UI, error boundaries, and server actions.
+category: Next.js
+order: 2
+slug: nextjs/app-router
+difficulty: intermediate
+estimatedTime: 15
+tags: [nextjs, app router, layouts, server actions, loading, error, route groups]
+lastUpdated: 2024-01-15
+---
+
+# Next.js App Router
+
+The App Router (introduced in Next.js 13) uses the `app/` directory with React Server Components by default. It replaces `getServerSideProps` and `getStaticProps` with direct async data fetching inside components.
+
+## File System Routing
+
+```
+app/
+├── layout.tsx          → Root layout (wraps every page)
+├── page.tsx            → / (home route)
+├── loading.tsx         → Loading UI for this segment
+├── error.tsx           → Error boundary for this segment
+├── not-found.tsx       → 404 for this segment
+├── blog/
+│   ├── layout.tsx      → Blog layout (wraps all blog pages)
+│   ├── page.tsx        → /blog
+│   └── [slug]/
+│       └── page.tsx    → /blog/:slug (dynamic route)
+└── (marketing)/        → Route group — no URL segment
+    ├── about/page.tsx  → /about
+    └── contact/page.tsx → /contact
+```
+
+## Layouts
+
+Layouts wrap pages and persist across navigations (sidebar state, open modals stay):
+
+```tsx
+// app/layout.tsx — root layout
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en">
+      <body>
+        <Header />
+        <main>{children}</main>
+        <Footer />
+      </body>
+    </html>
+  )
+}
+
+// app/dashboard/layout.tsx — nested layout
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex">
+      <Sidebar />
+      <div className="flex-1">{children}</div>
+    </div>
+  )
+}
+```
+
+## Server Components (Default)
+
+```tsx
+// app/blog/[slug]/page.tsx — Server Component (async by default)
+interface PageProps {
+  params: { slug: string }
+}
+
+// Fetch directly in the component — no useEffect, no useState
+export default async function BlogPost({ params }: PageProps) {
+  const post = await fetch(`https://api.example.com/posts/${params.slug}`, {
+    next: { revalidate: 3600 }  // ISR: revalidate every hour
+  }).then(r => r.json())
+
+  return (
+    <article>
+      <h1>{post.title}</h1>
+      <p>{post.body}</p>
+    </article>
+  )
+}
+
+// Generate static params for SSG
+export async function generateStaticParams() {
+  const posts = await fetch('https://api.example.com/posts').then(r => r.json())
+  return posts.map((post: { slug: string }) => ({ slug: post.slug }))
+}
+
+// SEO metadata
+export async function generateMetadata({ params }: PageProps) {
+  const post = await fetch(`https://api.example.com/posts/${params.slug}`).then(r => r.json())
+  return {
+    title: post.title,
+    description: post.excerpt,
+  }
+}
+```
+
+## Loading and Error UI
+
+```tsx
+// app/blog/loading.tsx — shown while page is streaming
+export default function Loading() {
+  return <BlogSkeleton />
+}
+
+// app/blog/error.tsx — error boundary — must be Client Component
+'use client'
+export default function Error({
+  error,
+  reset,
+}: {
+  error: Error & { digest?: string }
+  reset: () => void
+}) {
+  return (
+    <div>
+      <h2>Something went wrong</h2>
+      <button onClick={reset}>Try again</button>
+    </div>
+  )
+}
+```
+
+## Server Actions
+
+Mutate data directly from Server or Client Components without building an API route:
+
+```tsx
+// app/actions.ts
+'use server'
+
+import { revalidatePath } from 'next/cache'
+
+export async function createPost(formData: FormData) {
+  const title = formData.get('title') as string
+  const body  = formData.get('body') as string
+
+  await db.post.create({ data: { title, body } })
+  revalidatePath('/blog')  // clear ISR cache for blog page
+}
+
+// app/blog/new/page.tsx — use the action directly in a form
+import { createPost } from '../actions'
+
+export default function NewPost() {
+  return (
+    <form action={createPost}>
+      <input name="title" placeholder="Title" />
+      <textarea name="body" placeholder="Content" />
+      <button type="submit">Publish</button>
+    </form>
+  )
+}
+```
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- App Router uses `app/` directory — files named `page.tsx`, `layout.tsx`, `loading.tsx`, `error.tsx`
+- Layouts persist across navigations — great for sidebars, navigation state
+- Server Components are async by default — fetch data directly without `useEffect`
+- `loading.tsx` provides streaming skeleton UI while the page renders
+- Server Actions (`'use server'`) handle mutations without API routes
+- Route groups `(name)/` organize routes without affecting URLs
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "What is the difference between the Pages Router and the App Router in Next.js?",
+    answer: "Pages Router (pages/ directory): uses getServerSideProps, getStaticProps, getStaticPaths for data fetching — all run on the server before rendering. Client-side: React takes over. Components are Client Components by default. App Router (app/ directory): uses React Server Components by default — components are server-rendered and can be async. Data fetching happens inside components with await fetch(). Client interactivity requires the 'use client' directive. Layouts are persistent (don't unmount on navigation). Server Actions replace API routes for mutations. App Router is the future; Pages Router is maintained for backwards compatibility.",
+    level: "mid"
+  }
+]} />

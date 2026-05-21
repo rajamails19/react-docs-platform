@@ -1,0 +1,214 @@
+---
+title: Short-Circuit Evaluation
+description: Master the && and || patterns for concise conditional rendering in React JSX.
+category: Conditional Rendering
+order: 2
+slug: conditional/short-circuit
+difficulty: beginner
+estimatedTime: 6
+tags: [short-circuit, logical AND, logical OR, nullish coalescing, conditional rendering]
+lastUpdated: 2024-01-15
+---
+
+# Short-Circuit Evaluation
+
+Short-circuit evaluation lets you conditionally render UI with minimal code. Understanding how JavaScript's logical operators behave is essential for reading and writing React code.
+
+## Logical AND (`&&`)
+
+```
+A && B → if A is truthy, returns B; otherwise returns A (short-circuits)
+```
+
+```tsx
+// Show badge only when there are notifications
+<div>
+  <Bell />
+  {notifications.length > 0 && (
+    <span className="badge">{notifications.length}</span>
+  )}
+</div>
+
+// Show admin panel only for admins
+{user.isAdmin && <AdminPanel />}
+
+// Loading spinner
+{isLoading && <Spinner />}
+```
+
+## Logical OR (`||`) — Default Values
+
+```
+A || B → if A is truthy, returns A; otherwise returns B
+```
+
+```tsx
+// Show user's name or a fallback
+<h1>{user.displayName || 'Anonymous'}</h1>
+
+// Show custom message or default
+<p>{errorMessage || 'Something went wrong'}</p>
+```
+
+## Nullish Coalescing (`??`) — Null/Undefined Only
+
+`??` is stricter than `||` — it only falls back when the left side is `null` or `undefined` (not `0`, `''`, or `false`):
+
+```tsx
+// ❌ || treats 0 as falsy — wrong for counts
+<span>{itemCount || 'No items'}</span>   // shows "No items" when count is 0
+
+// ✅ ?? only falls back on null/undefined
+<span>{itemCount ?? 'No items'}</span>   // shows 0 correctly
+
+// ✅ Useful for optional config values
+const timeout = config.timeout ?? 5000
+```
+
+## Optional Chaining (`?.`) in JSX
+
+Access deeply nested values safely:
+
+```tsx
+// Without optional chaining — crashes if user is null
+<p>{user.profile.avatar.url}</p>
+
+// With optional chaining — returns undefined safely
+<p>{user?.profile?.avatar?.url ?? 'No avatar'}</p>
+
+// Conditionally render nested data
+{user?.subscription?.plan && (
+  <Badge>{user.subscription.plan}</Badge>
+)}
+```
+
+## Common Patterns Combined
+
+```tsx
+function UserHeader({ user }: { user: User | null }) {
+  return (
+    <header>
+      {/* Render nothing if no user */}
+      {user && (
+        <div>
+          {/* Avatar or fallback */}
+          <img src={user.avatar ?? '/default-avatar.png'} alt={user.name} />
+
+          {/* Name with fallback */}
+          <h2>{user.displayName || user.email}</h2>
+
+          {/* Only show badge if pro */}
+          {user.plan === 'pro' && <ProBadge />}
+
+          {/* Unread count — ?? protects against 0 bug */}
+          {(user.unreadCount ?? 0) > 0 && (
+            <span>{user.unreadCount} unread</span>
+          )}
+        </div>
+      )}
+    </header>
+  )
+}
+```
+
+## Interactive Example — Spot the Difference
+
+Toggle each value to see exactly how `&&`, `||`, and `??` behave with edge cases:
+
+<LiveEditor code={`import { useState } from 'react'
+
+export default function OperatorDemo() {
+  const [count, setCount]     = useState(0)
+  const [name, setName]       = useState('')
+  const [score, setScore]     = useState<number | null>(null)
+
+  const row = (label: string, result: React.ReactNode, note: string) => (
+    <tr>
+      <td style={{ padding: '6px 10px', fontFamily: 'monospace', fontSize: 13, color: '#6366f1' }}>{label}</td>
+      <td style={{ padding: '6px 10px', fontWeight: 700, fontSize: 14 }}>{result}</td>
+      <td style={{ padding: '6px 10px', fontSize: 12, color: '#6b7280' }}>{note}</td>
+    </tr>
+  )
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: 20, maxWidth: 560 }}>
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
+        <label style={{ fontSize: 13 }}>
+          count: <strong>{count}</strong>
+          <input type="range" min={0} max={5} value={count} onChange={e => setCount(+e.target.value)} style={{ marginLeft: 8 }} />
+        </label>
+        <label style={{ fontSize: 13 }}>
+          name: <input value={name} onChange={e => setName(e.target.value)} placeholder="(empty)" style={{ marginLeft: 4, padding: '2px 6px', border: '1px solid #e5e7eb', borderRadius: 4, fontSize: 13, width: 80 }} />
+        </label>
+        <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+          score is null:
+          <input type="checkbox" checked={score === null} onChange={e => setScore(e.target.checked ? null : 0)} />
+        </label>
+        {score !== null && (
+          <label style={{ fontSize: 13 }}>
+            score: <strong>{score}</strong>
+            <input type="range" min={0} max={100} value={score} onChange={e => setScore(+e.target.value)} style={{ marginLeft: 8 }} />
+          </label>
+        )}
+      </div>
+
+      <table style={{ width: '100%', borderCollapse: 'collapse', background: '#f9fafb', borderRadius: 10, overflow: 'hidden', border: '1px solid #e5e7eb' }}>
+        <thead>
+          <tr style={{ background: '#f3f4f6' }}>
+            <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: 12, fontWeight: 700, color: '#374151' }}>Expression</th>
+            <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: 12, fontWeight: 700, color: '#374151' }}>Result</th>
+            <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: 12, fontWeight: 700, color: '#374151' }}>Why</th>
+          </tr>
+        </thead>
+        <tbody>
+          {row(
+            'count && "has items"',
+            String(count && "has items"),
+            count === 0 ? '⚠ renders "0" not false!' : 'truthy → returns right side'
+          )}
+          {row(
+            'count > 0 && "has items"',
+            String(count > 0 && "has items"),
+            count === 0 ? 'false → renders nothing' : 'true → "has items"'
+          )}
+          {row(
+            'name || "Anonymous"',
+            name || 'Anonymous',
+            name === '' ? 'empty string is falsy → fallback' : 'truthy → shows name'
+          )}
+          {row(
+            'score ?? "no score"',
+            String(score ?? 'no score'),
+            score === null ? 'null → falls back' : 'even 0 passes through!'
+          )}
+          {row(
+            'score || "no score"',
+            String(score || 'no score'),
+            score === 0 ? '⚠ 0 is falsy → wrong fallback!' : score === null ? 'null → falls back' : 'score is truthy → shows score'
+          )}
+        </tbody>
+      </table>
+
+      <p style={{ marginTop: 12, fontSize: 12, color: '#9ca3af' }}>
+        Try setting score=0 and compare <code>??</code> vs <code>||</code>. Set count=0 and watch the <code>&&</code> gotcha.
+      </p>
+    </div>
+  )
+}`} />
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- `&&` renders the right side only when the left side is truthy — use `count > 0 &&` not `count &&` to avoid rendering `0`
+- `||` returns the first truthy value — good for string/value fallbacks
+- `??` only falls back on `null`/`undefined` — use for numeric values and optional config
+- `?.` optional chaining safely accesses nested properties — pair with `??` for defaults
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "What's the difference between || and ?? for providing fallback values in JSX?",
+    answer: "|| (logical OR) returns the right-hand value when the left side is any falsy value: false, 0, '', null, undefined, NaN. This causes bugs with legitimate falsy values like count=0 or enabled=false. ?? (nullish coalescing) only falls back when the left side is null or undefined — it lets 0, false, and empty string pass through unchanged. Use ?? when your value could legitimately be 0 or false, || when you specifically want to treat empty strings and 0 as missing.",
+    level: "junior"
+  }
+]} />

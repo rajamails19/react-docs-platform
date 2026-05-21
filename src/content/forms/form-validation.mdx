@@ -1,0 +1,337 @@
+---
+title: Form Validation
+description: Validate React forms with built-in HTML5 validation, custom logic, and React Hook Form for production-grade forms.
+category: Forms
+order: 3
+slug: forms/form-validation
+difficulty: intermediate
+estimatedTime: 12
+tags: [forms, validation, React Hook Form, Zod, errors, HTML5]
+lastUpdated: 2024-01-15
+---
+
+# Form Validation
+
+Validation ensures users submit correct data before it reaches your server. There are three layers: HTML5 built-in, custom JavaScript logic, and form libraries like React Hook Form.
+
+## HTML5 Built-in Validation
+
+```tsx
+function SimpleForm() {
+  return (
+    <form>
+      <input
+        type="email"
+        required
+        minLength={5}
+        maxLength={100}
+        pattern="[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$"
+        placeholder="Enter email"
+      />
+      <input type="password" required minLength={8} />
+      <button type="submit">Submit</button>
+    </form>
+  )
+}
+```
+
+Fast to implement, zero JavaScript needed, but: hard to style, can't validate across fields (e.g., password confirm), and no good error display control.
+
+## Custom Validation with useState
+
+```tsx
+interface FormData {
+  email:    string
+  password: string
+  confirm:  string
+}
+interface FormErrors {
+  email?:    string
+  password?: string
+  confirm?:  string
+}
+
+function SignupForm() {
+  const [form, setForm] = useState<FormData>({ email: '', password: '', confirm: '' })
+  const [errors, setErrors] = useState<FormErrors>({})
+  const [touched, setTouched] = useState<Record<string, boolean>>({})
+
+  const validate = (data: FormData): FormErrors => {
+    const errs: FormErrors = {}
+    if (!data.email.includes('@')) errs.email = 'Enter a valid email'
+    if (data.password.length < 8)  errs.password = 'Password must be at least 8 characters'
+    if (data.password !== data.confirm) errs.confirm = 'Passwords do not match'
+    return errs
+  }
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const next = { ...form, [e.target.name]: e.target.value }
+    setForm(next)
+    if (touched[e.target.name]) {
+      setErrors(validate(next))  // live validation after first blur
+    }
+  }
+
+  const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    setTouched(t => ({ ...t, [e.target.name]: true }))
+    setErrors(validate(form))
+  }
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const errs = validate(form)
+    setErrors(errs)
+    setTouched({ email: true, password: true, confirm: true })
+    if (Object.keys(errs).length === 0) {
+      // submit
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} noValidate>
+      <div>
+        <input
+          name="email"
+          type="email"
+          value={form.email}
+          onChange={handleChange}
+          onBlur={handleBlur}
+          placeholder="Email"
+        />
+        {errors.email && <p className="error">{errors.email}</p>}
+      </div>
+      <div>
+        <input
+          name="password"
+          type="password"
+          value={form.password}
+          onChange={handleChange}
+          onBlur={handleBlur}
+          placeholder="Password"
+        />
+        {errors.password && <p className="error">{errors.password}</p>}
+      </div>
+      <div>
+        <input
+          name="confirm"
+          type="password"
+          value={form.confirm}
+          onChange={handleChange}
+          onBlur={handleBlur}
+          placeholder="Confirm Password"
+        />
+        {errors.confirm && <p className="error">{errors.confirm}</p>}
+      </div>
+      <button type="submit">Sign Up</button>
+    </form>
+  )
+}
+```
+
+## React Hook Form + Zod (Production Standard)
+
+React Hook Form manages form state without re-rendering on every keystroke. Zod provides type-safe schema validation.
+
+```tsx
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { z } from 'zod'
+
+const schema = z.object({
+  email:    z.string().email('Enter a valid email'),
+  password: z.string().min(8, 'At least 8 characters'),
+  confirm:  z.string(),
+}).refine(data => data.password === data.confirm, {
+  message: 'Passwords do not match',
+  path: ['confirm'],
+})
+
+type FormValues = z.infer<typeof schema>
+
+function SignupForm() {
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = useForm<FormValues>({ resolver: zodResolver(schema) })
+
+  const onSubmit = async (data: FormValues) => {
+    await createUser(data)
+  }
+
+  return (
+    <form onSubmit={handleSubmit(onSubmit)}>
+      <div>
+        <input {...register('email')} type="email" placeholder="Email" />
+        {errors.email && <p>{errors.email.message}</p>}
+      </div>
+      <div>
+        <input {...register('password')} type="password" placeholder="Password" />
+        {errors.password && <p>{errors.password.message}</p>}
+      </div>
+      <div>
+        <input {...register('confirm')} type="password" placeholder="Confirm" />
+        {errors.confirm && <p>{errors.confirm.message}</p>}
+      </div>
+      <button type="submit" disabled={isSubmitting}>
+        {isSubmitting ? 'Signing up…' : 'Sign Up'}
+      </button>
+    </form>
+  )
+}
+```
+
+<ComparisonTable
+  columns={[
+    { key: 'rhf', label: 'React Hook Form', highlight: true },
+    { key: 'manual', label: 'Manual useState' },
+  ]}
+  rows={[
+    { feature: 'Re-renders per keystroke', rhf: 'None (uncontrolled)', manual: 'One per field' },
+    { feature: 'Schema validation', rhf: 'Zod / Yup / custom', manual: 'Custom code' },
+    { feature: 'Async validation', rhf: 'Built-in', manual: 'Manual async handling' },
+    { feature: 'Setup complexity', rhf: 'npm install + schema', manual: 'Zero dependencies' },
+    { feature: 'Best for', rhf: 'Production forms', manual: 'Simple 2-3 field forms' },
+  ]}
+/>
+
+## Interactive Example — Live Validation
+
+Type in the fields and see validation errors appear and disappear in real time:
+
+<LiveEditor code={`import { useState } from 'react'
+
+interface Fields { email: string; password: string; confirm: string }
+type Errors = Partial<Record<keyof Fields, string>>
+
+function validate(fields: Fields): Errors {
+  const errors: Errors = {}
+  if (!fields.email) {
+    errors.email = 'Email is required'
+  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.email)) {
+    errors.email = 'Enter a valid email address'
+  }
+  if (!fields.password) {
+    errors.password = 'Password is required'
+  } else if (fields.password.length < 8) {
+    errors.password = 'At least 8 characters required'
+  } else if (!/[A-Z]/.test(fields.password)) {
+    errors.password = 'Must contain at least one uppercase letter'
+  } else if (!/[0-9]/.test(fields.password)) {
+    errors.password = 'Must contain at least one number'
+  }
+  if (fields.confirm !== fields.password) {
+    errors.confirm = 'Passwords do not match'
+  }
+  return errors
+}
+
+const inputStyle = (error?: string) => ({
+  width: '100%', padding: '10px 12px', boxSizing: 'border-box' as const,
+  border: \`1.5px solid \${error ? '#ef4444' : '#e5e7eb'}\`,
+  borderRadius: 8, fontSize: 14, outline: 'none',
+  transition: 'border-color 0.15s',
+})
+
+export default function SignupForm() {
+  const [fields, setFields]   = useState<Fields>({ email: '', password: '', confirm: '' })
+  const [touched, setTouched] = useState<Partial<Record<keyof Fields, boolean>>>({})
+  const [success, setSuccess] = useState(false)
+
+  const errors = validate(fields)
+  const isValid = Object.keys(errors).length === 0 && fields.email !== ''
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFields(prev => ({ ...prev, [e.target.name]: e.target.value }))
+  }
+  const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    setTouched(prev => ({ ...prev, [e.target.name]: true }))
+  }
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    setTouched({ email: true, password: true, confirm: true })
+    if (isValid) setSuccess(true)
+  }
+
+  if (success) return (
+    <div style={{ padding: 32, textAlign: 'center' }}>
+      <div style={{ fontSize: 40, marginBottom: 8 }}>🎉</div>
+      <h3 style={{ margin: 0, color: '#22c55e' }}>Account created!</h3>
+      <button onClick={() => { setSuccess(false); setFields({ email: '', password: '', confirm: '' }); setTouched({}) }}
+        style={{ marginTop: 16, padding: '8px 20px', background: '#6366f1', color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer' }}>
+        Try again
+      </button>
+    </div>
+  )
+
+  return (
+    <form onSubmit={handleSubmit} style={{ fontFamily: 'sans-serif', padding: 24, maxWidth: 380, display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <h3 style={{ margin: 0, fontSize: 18 }}>Create account</h3>
+
+      {(['email', 'password', 'confirm'] as const).map(name => {
+        const err = touched[name] ? errors[name] : undefined
+        const label = name === 'confirm' ? 'Confirm password' : name.charAt(0).toUpperCase() + name.slice(1)
+        return (
+          <div key={name}>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4, color: '#374151' }}>{label}</label>
+            <input
+              name={name} value={fields[name]}
+              type={name !== 'email' ? 'password' : 'email'}
+              onChange={handleChange} onBlur={handleBlur}
+              placeholder={label}
+              style={inputStyle(err)}
+            />
+            {err && <p style={{ margin: '4px 0 0', fontSize: 12, color: '#ef4444' }}>{err}</p>}
+            {!err && touched[name] && fields[name] && (
+              <p style={{ margin: '4px 0 0', fontSize: 12, color: '#22c55e' }}>✓ Looks good</p>
+            )}
+          </div>
+        )
+      })}
+
+      <div style={{ background: '#f9fafb', borderRadius: 8, padding: 10, fontSize: 12 }}>
+        <div style={{ fontWeight: 600, marginBottom: 4 }}>Password requirements:</div>
+        {[
+          [/.{8,}/, '8+ characters'],
+          [/[A-Z]/, 'One uppercase letter'],
+          [/[0-9]/, 'One number'],
+        ].map(([re, label]) => (
+          <div key={label as string} style={{ color: (re as RegExp).test(fields.password) ? '#22c55e' : '#9ca3af', marginTop: 2 }}>
+            {(re as RegExp).test(fields.password) ? '✓' : '○'} {label as string}
+          </div>
+        ))}
+      </div>
+
+      <button type="submit"
+        style={{ padding: '10px 20px', background: isValid ? '#6366f1' : '#e5e7eb', color: isValid ? 'white' : '#9ca3af', border: 'none', borderRadius: 8, cursor: isValid ? 'pointer' : 'default', fontWeight: 600, fontSize: 15, transition: 'all 0.2s' }}>
+        Create Account
+      </button>
+    </form>
+  )
+}`} />
+
+<Challenge title="Add a username field">
+Add a `username` field between the email and password fields with these rules:
+- Required
+- Must be 3–20 characters
+- Only letters, numbers, and underscores (regex: `/^[a-zA-Z0-9_]+$/`)
+
+Add it to the `Fields` interface, `validate` function, and the render loop.
+</Challenge>
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- HTML5 validation (`required`, `type="email"`, `pattern`) — zero JS, limited control
+- Custom `useState` validation — full control, good for simple forms
+- `onBlur` + `touched` state — validate after user interacts, not on every keystroke
+- React Hook Form + Zod — production standard: type-safe schemas, no re-renders, async support
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "Why does React Hook Form perform better than controlled form inputs?",
+    answer: "Controlled inputs (onChange → setState → re-render) cause a re-render on every keystroke. For a form with 10 fields, typing a single character causes all 10 field components to re-render. React Hook Form uses uncontrolled inputs (via ref) to track values without triggering re-renders. The form component only re-renders on submit or when error state changes. For large forms this is a significant performance difference.",
+    level: "mid"
+  }
+]} />

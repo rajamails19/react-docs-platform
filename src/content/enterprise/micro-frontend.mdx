@@ -1,0 +1,155 @@
+---
+title: Micro Frontends
+description: Split large React applications into independently deployable frontend modules using Module Federation and iframe isolation.
+category: Enterprise Architecture
+order: 2
+slug: enterprise/micro-frontend
+difficulty: advanced
+estimatedTime: 15
+tags: [micro frontends, module federation, webpack, monorepo, enterprise, deployment]
+lastUpdated: 2024-01-15
+---
+
+# Micro Frontends
+
+Micro frontends apply microservices principles to the frontend — splitting a large app into independently developed, tested, and deployed pieces owned by different teams.
+
+## When to Use Micro Frontends
+
+<ComparisonTable
+  columns={[
+    { key: 'good', label: 'Good Fit', highlight: true },
+    { key: 'bad', label: 'Bad Fit' },
+  ]}
+  rows={[
+    { feature: 'Team size', good: '5+ teams, 50+ devs', bad: '1-2 teams, < 20 devs' },
+    { feature: 'Deploy frequency', good: 'Teams deploy independently', bad: 'Single coordinated release' },
+    { feature: 'Tech diversity', good: 'Teams need different stacks', bad: 'Uniform stack is fine' },
+    { feature: 'Domain boundaries', good: 'Clear domain ownership', bad: 'Tightly coupled features' },
+    { feature: 'Overhead tolerance', good: 'Org justifies complexity', bad: 'Complexity not justified' },
+  ]}
+/>
+
+## Webpack Module Federation
+
+Module Federation (Webpack 5) lets applications load code from other applications at runtime:
+
+```js
+// webpack.config.js — HOST APPLICATION
+const { ModuleFederationPlugin } = require('webpack').container
+
+module.exports = {
+  plugins: [
+    new ModuleFederationPlugin({
+      name: 'host',
+      remotes: {
+        // Load CheckoutApp from a different deployment
+        checkout: 'checkout@https://checkout.example.com/remoteEntry.js',
+        // Load CatalogApp from another deployment
+        catalog:  'catalog@https://catalog.example.com/remoteEntry.js',
+      },
+      shared: {
+        react:         { singleton: true, requiredVersion: '^18.0.0' },
+        'react-dom':   { singleton: true, requiredVersion: '^18.0.0' },
+      },
+    }),
+  ],
+}
+```
+
+```js
+// webpack.config.js — REMOTE APPLICATION (checkout team)
+module.exports = {
+  plugins: [
+    new ModuleFederationPlugin({
+      name: 'checkout',
+      filename: 'remoteEntry.js',
+      exposes: {
+        './CheckoutFlow': './src/CheckoutFlow',
+        './Cart':         './src/Cart',
+      },
+      shared: { react: { singleton: true } },
+    }),
+  ],
+}
+```
+
+```tsx
+// Host app — lazy load the remote component
+const CheckoutFlow = React.lazy(() => import('checkout/CheckoutFlow'))
+const Cart         = React.lazy(() => import('checkout/Cart'))
+
+function App() {
+  return (
+    <Suspense fallback={<Spinner />}>
+      <Routes>
+        <Route path="/checkout/*" element={<CheckoutFlow />} />
+        <Route path="/cart"       element={<Cart />} />
+      </Routes>
+    </Suspense>
+  )
+}
+```
+
+## Shared Design System
+
+A critical requirement: all micro frontends must share the same UI component library to look and feel consistent.
+
+```ts
+// packages/design-system/src/index.ts
+export { Button }    from './Button'
+export { Input }     from './Input'
+export { Modal }     from './Modal'
+export { theme }     from './theme'
+export type { ButtonProps, InputProps } from './types'
+```
+
+```json
+// Each micro frontend's package.json
+{
+  "dependencies": {
+    "@company/design-system": "^2.0.0"
+  }
+}
+```
+
+<Callout type="warning" title="React Version Conflicts">
+All micro frontends must use the same React version. Use `singleton: true` in Module Federation shared config. Multiple React instances on the same page cause hooks to fail with "Invalid hook call" errors.
+</Callout>
+
+## Cross-App Communication
+
+```tsx
+// Use a shared event bus — CustomEvents for simple cases
+// Dispatch from one micro frontend
+window.dispatchEvent(new CustomEvent('cart:item-added', {
+  detail: { productId: '123', quantity: 1 }
+}))
+
+// Listen in another micro frontend
+window.addEventListener('cart:item-added', (e: CustomEvent) => {
+  updateCartBadge(e.detail.quantity)
+})
+
+// For complex state — use a shared Zustand store or Redux Toolkit
+// in the design-system package that all apps import
+```
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- Micro frontends apply microservices thinking to the frontend — independent teams, codebases, deploys
+- Module Federation (Webpack 5) is the standard for runtime code sharing without rebuilding the host
+- Shared `singleton: true` React prevents version conflicts across micro frontends
+- A shared design system package is essential for visual consistency
+- Use CustomEvents or a shared state store for cross-app communication
+- Only adopt micro frontends when org size and team independence justify the overhead
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "What are the main challenges with micro frontends and how do you address them?",
+    answer: "Key challenges: (1) Shared dependencies — multiple React instances break hooks. Fix: Module Federation singleton flag. (2) Visual inconsistency — each team ships different designs. Fix: shared design system package with versioned releases. (3) Cross-app routing — deep links and back button need coordination. Fix: the host app owns routing, remotes expose route-level components. (4) Authentication — each app needs the auth token. Fix: shared auth module or token in memory/sessionStorage. (5) Performance — loading multiple remote bundles adds network overhead. Fix: HTTP/2, preloading critical remotes, aggressive caching of remoteEntry.js. (6) Testing complexity — e2e tests must spin up multiple apps. Fix: mock remotes in unit tests, run full integration in staging only.",
+    level: "senior"
+  }
+]} />

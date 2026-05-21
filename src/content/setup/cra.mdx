@@ -1,0 +1,387 @@
+---
+title: Create React App — Setup, Usage, and Migration
+description: Learn what Create React App is, how to use it, understand its limitations, and how to migrate to Vite for modern React development.
+category: Setup
+order: 2
+slug: setup/cra
+difficulty: beginner
+estimatedTime: 14
+tags: [create-react-app, cra, vite, webpack, setup, migration, legacy, scaffolding]
+lastUpdated: 2024-01-15
+---
+
+# Create React App
+
+Create React App (CRA) was the official way to bootstrap new React projects from 2016 to around 2022. You'll encounter it constantly in legacy codebases, tutorials, and documentation — so understanding it is essential even though **Vite is now the recommended choice** for new projects.
+
+## What Is Create React App?
+
+CRA is a command-line tool that generates a fully configured React project with:
+
+- Webpack for bundling
+- Babel for transpilation (JSX + modern JavaScript)
+- Jest for testing
+- ESLint for linting
+- A development server with hot reloading
+- Scripts for building production bundles
+
+The key promise was **zero configuration** — you get a working setup without touching Webpack or Babel configs.
+
+```bash
+npx create-react-app my-app
+cd my-app
+npm start
+```
+
+Three commands and you have a running React app.
+
+## Creating a CRA Project
+
+```bash
+# Basic JavaScript project
+npx create-react-app my-app
+
+# TypeScript project (strongly recommended)
+npx create-react-app my-app --template typescript
+
+# Navigate into the project
+cd my-app
+
+# Start development server
+npm start
+```
+
+<Callout type="warning" title="CRA may be slow to initialize">
+CRA installs a large number of dependencies (often 1,400+ packages). Expect the initial install to take 1-3 minutes depending on your internet speed. This is one of the reasons developers have moved to Vite.
+</Callout>
+
+## The Generated Folder Structure
+
+After running CRA, you'll see this structure:
+
+```
+my-app/
+├── node_modules/        # All installed packages (never commit this)
+├── public/
+│   ├── index.html       # The single HTML page — root of your SPA
+│   ├── favicon.ico
+│   └── manifest.json    # PWA manifest
+├── src/
+│   ├── App.css          # Styles for App component
+│   ├── App.js           # Root App component
+│   ├── App.test.js      # Tests for App component
+│   ├── index.css        # Global styles
+│   ├── index.js         # Entry point — mounts React to #root
+│   ├── logo.svg
+│   └── reportWebVitals.js
+├── .gitignore
+├── package.json         # Project metadata and scripts
+├── package-lock.json    # Exact dependency versions (commit this)
+└── README.md
+```
+
+The most important files:
+
+**`public/index.html`** — The HTML shell. Your entire app mounts inside `<div id="root"></div>`.
+
+**`src/index.js`** — The entry point that wires React to the HTML:
+
+```jsx
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import './index.css'
+import App from './App'
+
+const root = ReactDOM.createRoot(document.getElementById('root'))
+root.render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+)
+```
+
+**`src/App.js`** — Your root component. Build from here.
+
+## The Four CRA Scripts
+
+CRA defines four npm scripts in `package.json`:
+
+```json
+{
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test":  "react-scripts test",
+    "eject": "react-scripts eject"
+  }
+}
+```
+
+### `npm start`
+
+Starts the development server at `http://localhost:3000`.
+
+- Hot Module Replacement (HMR) — changes appear instantly without page reload
+- Error overlay — compilation errors shown directly in the browser
+- Runs on port 3000 by default (configurable via `PORT=3001 npm start`)
+
+### `npm run build`
+
+Creates an optimized production bundle in the `/build` folder:
+
+```
+build/
+├── static/
+│   ├── css/
+│   │   └── main.abc123.css    # Minified CSS with content hash
+│   └── js/
+│       ├── main.abc123.js     # Main app bundle
+│       └── 787.abc123.js      # Vendor chunk
+└── index.html                 # HTML with injected script/link tags
+```
+
+Content hashes in filenames enable long-term browser caching — when your code changes, the hash changes, so browsers don't serve stale files.
+
+### `npm test`
+
+Runs Jest in interactive watch mode. Tests are any files matching:
+- `*.test.js` / `*.test.ts`
+- `*.spec.js` / `*.spec.ts`
+- Files inside `__tests__` folders
+
+```bash
+npm test                    # Interactive watch mode
+npm test -- --coverage      # Generate coverage report
+npm test -- --watchAll=false  # Run once (useful in CI)
+```
+
+### `npm run eject` — Don't Do This
+
+Eject copies all of CRA's internal Webpack, Babel, and Jest configuration into your project so you can customize it. This operation is **irreversible**.
+
+<Callout type="danger" title="Never eject — there are better alternatives">
+Once you eject, you own 20+ configuration files and must maintain them yourself as dependencies update. If you need to customize CRA behavior, use CRACO (Create React App Configuration Override) or better yet, migrate to Vite where configuration is simple and first-class.
+</Callout>
+
+## Environment Variables in CRA
+
+CRA supports `.env` files with a required prefix: **all custom variables must start with `REACT_APP_`**
+
+```bash
+# .env
+REACT_APP_API_URL=https://api.example.com
+REACT_APP_FEATURE_FLAG=true
+```
+
+```jsx
+// Access in your code
+const apiUrl = process.env.REACT_APP_API_URL
+const flagEnabled = process.env.REACT_APP_FEATURE_FLAG === 'true'
+```
+
+Variables without the `REACT_APP_` prefix are ignored (for security — you don't want to accidentally expose server secrets).
+
+## Why CRA Is Being Replaced
+
+CRA served its purpose beautifully, but the ecosystem has moved on:
+
+<ComparisonTable
+  columns={[
+    { key: 'aspect', label: 'Aspect' },
+    { key: 'cra', label: 'Create React App' },
+    { key: 'vite', label: 'Vite', highlight: true },
+  ]}
+  rows={[
+    {
+      feature: 'Dev server startup',
+      cra: '15-30 seconds (bundles entire app first)',
+      vite: '<500ms (serves ES modules natively)',
+    },
+    {
+      feature: 'Hot module replacement',
+      cra: '1-5 seconds per change',
+      vite: '<100ms (only updates changed module)',
+    },
+    {
+      feature: 'Build tool',
+      cra: 'Webpack (complex, slower)',
+      vite: 'Rollup (faster, modern)',
+    },
+    {
+      feature: 'Configuration',
+      cra: 'Hidden (eject to access)',
+      vite: 'Simple vite.config.ts',
+    },
+    {
+      feature: 'Maintenance',
+      cra: 'Largely unmaintained since 2022',
+      vite: 'Actively maintained, frequent releases',
+    },
+    {
+      feature: 'TypeScript',
+      cra: 'Supported via template flag',
+      vite: 'First-class, works out of the box',
+    },
+    {
+      feature: 'Bundle size',
+      cra: 'Larger node_modules (~300MB)',
+      vite: 'Smaller (~150MB)',
+    },
+    {
+      feature: 'Plugin ecosystem',
+      cra: 'Limited customization',
+      vite: 'Rich plugin ecosystem',
+    },
+  ]}
+/>
+
+The core issue: CRA uses **Webpack** which bundles your entire application before serving it. On large apps, this means 20-30 second startup times. Vite uses native ES modules in the browser and only processes files on demand — startup is near-instant regardless of project size.
+
+<Callout type="info" title="CRA is not deprecated, just unmaintained">
+The CRA GitHub repository has been largely unmaintained since early 2023. No new features are being added, and some dependency vulnerabilities are unpatched. It still works, but using it for new projects means starting with legacy tooling.
+</Callout>
+
+## Migrating from CRA to Vite
+
+If you have an existing CRA project, here's how to migrate:
+
+### Step 1: Update package.json
+
+Remove CRA's react-scripts and add Vite:
+
+```bash
+npm uninstall react-scripts
+npm install --save-dev vite @vitejs/plugin-react
+```
+
+Update your scripts in `package.json`:
+
+```json
+{
+  "scripts": {
+    "dev":    "vite",
+    "build":  "vite build",
+    "preview": "vite preview",
+    "test":   "vitest"
+  }
+}
+```
+
+### Step 2: Create vite.config.ts
+
+```ts
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    port: 3000,  // Keep same port as CRA if desired
+  },
+})
+```
+
+### Step 3: Move index.html
+
+Vite expects `index.html` in the project root, not the `public/` folder:
+
+```bash
+mv public/index.html ./index.html
+```
+
+Update the script reference in `index.html` to point to your entry file:
+
+```html
+<!-- Add this line before </body> in index.html -->
+<script type="module" src="/src/index.tsx"></script>
+```
+
+Also remove the `%PUBLIC_URL%` references in the HTML (Vite handles this differently):
+
+```html
+<!-- Before (CRA) -->
+<link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
+
+<!-- After (Vite) -->
+<link rel="icon" href="/favicon.ico" />
+```
+
+### Step 4: Update Environment Variables
+
+Vite uses `VITE_` prefix instead of `REACT_APP_`:
+
+```bash
+# .env (before)
+REACT_APP_API_URL=https://api.example.com
+
+# .env (after)
+VITE_API_URL=https://api.example.com
+```
+
+```ts
+// Access in code
+// Before (CRA)
+const url = process.env.REACT_APP_API_URL
+
+// After (Vite)
+const url = import.meta.env.VITE_API_URL
+```
+
+### Step 5: Update index entry point
+
+```tsx
+// src/index.tsx — update import syntax if needed
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import './index.css'
+import App from './App'
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+)
+```
+
+### Step 6: Verify and fix remaining issues
+
+```bash
+npm run dev
+```
+
+Common issues to fix:
+- `require()` calls (CRA allowed CommonJS; Vite expects ES modules)
+- SVG imports (add `?react` suffix: `import Logo from './logo.svg?react'`)
+- Process.env references — replace all with import.meta.env
+
+<Callout type="success" title="After migration">
+Most medium-sized CRA apps complete migration in under an hour. The payoff is immediate: dev server starts in milliseconds and hot updates are near-instant.
+</Callout>
+
+## When Should You Still Use CRA?
+
+Honestly, almost never for new projects. But there are edge cases:
+
+- **Following a legacy tutorial** — older courses reference CRA; using CRA matches the tutorial exactly
+- **Company policy** — some organizations standardize on CRA for existing projects
+- **Adding to an existing CRA project** — no reason to migrate if the project works
+
+For any new project you start today, use Vite.
+
+<InterviewQA questions={[
+  {
+    question: "What is Create React App and what does it provide out of the box?",
+    answer: "Create React App is a command-line scaffolding tool that generates a pre-configured React project. Out of the box it includes: Webpack for module bundling, Babel for transpiling JSX and modern JavaScript, Jest for unit testing, ESLint for code linting, a development server with hot reloading, and build scripts for creating optimized production bundles. The key value was zero-configuration — developers could start writing React without setting up any tooling.",
+    level: "junior"
+  },
+  {
+    question: "Why is Vite preferred over Create React App for new React projects?",
+    answer: "Vite is preferred for several reasons: (1) Speed — Vite uses native ES modules in development, so the dev server starts in milliseconds regardless of project size. CRA uses Webpack which must bundle the entire app first, causing 15-30 second startup times on large apps. (2) HMR performance — Vite's hot module replacement updates only the changed module in <100ms. CRA's HMR can take seconds. (3) Configuration — Vite has a simple, accessible vite.config.ts. CRA hides all config and forces you to eject (irreversibly) to customize it. (4) Maintenance — CRA is largely unmaintained since 2023. Vite is actively developed.",
+    level: "mid"
+  },
+  {
+    question: "What does `npm run eject` do in a CRA project and why is it generally discouraged?",
+    answer: "Ejecting copies all of CRA's internal configuration — 20+ files covering Webpack, Babel, Jest, PostCSS, and ESLint — directly into your project, giving you full control to customize them. It's irreversible; you cannot un-eject. It's discouraged because: (1) You now own and must maintain all that configuration as dependencies update. (2) You lose the ability to get free improvements by upgrading react-scripts. (3) The generated configs are complex and intimidating. Better alternatives exist: CRACO for overriding CRA config without ejecting, or simply migrating to Vite where configuration is transparent and simple by design.",
+    level: "mid"
+  }
+]} />

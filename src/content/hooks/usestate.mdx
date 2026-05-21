@@ -1,0 +1,329 @@
+---
+title: useState Hook
+description: Master React's most fundamental hook — useState — to add and manage local component state.
+category: Hooks
+order: 1
+slug: hooks/usestate
+difficulty: beginner
+estimatedTime: 15
+tags: [usestate, state, hook, re-render, functional component]
+lastUpdated: 2024-01-15
+---
+
+# useState
+
+`useState` is React's most fundamental hook. It lets you add **local state** to a functional component — state that persists between renders and triggers a re-render when it changes.
+
+```tsx
+const [state, setState] = useState(initialValue)
+```
+
+## The Problem It Solves
+
+Without state, React components are pure functions: same input (props) → same output (JSX). But real UIs need to respond to user actions and remember information:
+
+```tsx
+// ❌ BROKEN — this never updates the UI
+function Counter() {
+  let count = 0   // regular variable, lost on every render
+  return (
+    <button onClick={() => count++}>  {/* increment has no effect */}
+      Count: {count}
+    </button>
+  )
+}
+
+// ✅ WORKS — useState persists the value and triggers re-render
+function Counter() {
+  const [count, setCount] = useState(0)
+  return (
+    <button onClick={() => setCount(count + 1)}>
+      Count: {count}
+    </button>
+  )
+}
+```
+
+## Real-World Analogy
+
+Think of state like a **whiteboard** in a classroom:
+
+- The teacher (component) reads the number on the board (state)
+- When the teacher erases and writes a new number (setState), everyone in the class sees the update
+- The number persists between questions (renders) until explicitly changed
+
+## How useState Works
+
+<MermaidDiagram chart={`
+sequenceDiagram
+  participant C as Component
+  participant R as React
+  participant D as DOM
+
+  C->>R: useState(0) → [0, setter]
+  R->>D: Initial render: "Count: 0"
+  Note over C,D: User clicks button
+  C->>R: setCount(1)
+  R->>C: Re-render component
+  C->>R: useState(0) → [1, setter]
+  Note right of R: React returns stored value,<br/>not the initial value
+  R->>D: Update DOM: "Count: 1"
+`} caption="useState lifecycle across renders" />
+
+## Syntax & Patterns
+
+### Basic usage
+
+```tsx
+const [count, setCount] = useState(0)
+const [name, setName]   = useState('')
+const [visible, setVisible] = useState(false)
+```
+
+### Setting state
+
+```tsx
+// Direct value
+setCount(5)
+
+// Functional updater (when new state depends on previous)
+setCount(prev => prev + 1)   // ← always use this in event handlers
+
+// Object state
+const [user, setUser] = useState({ name: '', email: '' })
+
+setUser({ name: 'Alice', email: 'alice@example.com' })     // full replace
+setUser(prev => ({ ...prev, name: 'Bob' }))                // partial update
+```
+
+<Callout type="warning" title="Use functional updater for stale closures">
+When the new state depends on the previous state, always use the functional form `setState(prev => ...)`. This guarantees you're working with the latest state, not a stale closure value — critical in async handlers and effects.
+</Callout>
+
+### Lazy initialization
+
+If computing the initial state is expensive, pass a function:
+
+```tsx
+// ✅ Runs the function only once
+const [data, setData] = useState(() => {
+  const stored = localStorage.getItem('data')
+  return stored ? JSON.parse(stored) : []
+})
+
+// ❌ Runs JSON.parse on EVERY render (wasteful)
+const [data, setData] = useState(JSON.parse(localStorage.getItem('data') ?? '[]'))
+```
+
+## Interactive Example
+
+<LiveEditor code={`import { useState } from 'react'
+
+function ShoppingCart() {
+  const [items, setItems] = useState([
+    { id: 1, name: 'React T-Shirt', price: 29, qty: 1 },
+    { id: 2, name: 'TypeScript Mug', price: 15, qty: 2 },
+  ])
+
+  const updateQty = (id: number, delta: number) => {
+    setItems(prev =>
+      prev.map(item =>
+        item.id === id
+          ? { ...item, qty: Math.max(0, item.qty + delta) }
+          : item
+      ).filter(item => item.qty > 0)  // remove items with qty 0
+    )
+  }
+
+  const total = items.reduce((sum, item) => sum + item.price * item.qty, 0)
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', maxWidth: 400, margin: '20px auto', padding: 20, border: '1px solid #eee', borderRadius: 12 }}>
+      <h2 style={{ margin: '0 0 16px' }}>🛒 Cart</h2>
+      {items.length === 0 ? (
+        <p style={{ color: '#888' }}>Your cart is empty</p>
+      ) : (
+        items.map(item => (
+          <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+            <span style={{ flex: 1 }}>{item.name}</span>
+            <span style={{ color: '#888' }}>\${item.price}</span>
+            <button onClick={() => updateQty(item.id, -1)} style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid #ddd', cursor: 'pointer' }}>−</button>
+            <span style={{ minWidth: 20, textAlign: 'center' }}>{item.qty}</span>
+            <button onClick={() => updateQty(item.id, 1)} style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid #ddd', cursor: 'pointer' }}>+</button>
+          </div>
+        ))
+      )}
+      <hr style={{ margin: '16px 0', borderColor: '#eee' }} />
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
+        <span>Total</span>
+        <span>\${total}</span>
+      </div>
+    </div>
+  )
+}
+
+export default ShoppingCart`} />
+
+## Multiple State Variables vs One Object
+
+```tsx
+// ✅ Preferred — separate variables for unrelated state
+const [name, setName]       = useState('')
+const [age, setAge]         = useState(0)
+const [loading, setLoading] = useState(false)
+
+// ✅ OK — one object when values always change together
+const [position, setPosition] = useState({ x: 0, y: 0 })
+const handleMouseMove = (e: MouseEvent) => {
+  setPosition({ x: e.clientX, y: e.clientY })  // both change together
+}
+
+// ❌ Antipattern — grouping unrelated state into one object
+const [state, setState] = useState({
+  name: '',
+  loading: false,
+  data: [],
+  error: null,
+})
+// Now every update requires spreading the whole object
+setState(prev => ({ ...prev, loading: true }))  // tedious and error-prone
+```
+
+## State Immutability
+
+React uses **reference equality** to detect state changes. Always return a new reference:
+
+```tsx
+const [todos, setTodos] = useState([
+  { id: 1, text: 'Learn React', done: false }
+])
+
+// ❌ MUTATING — React won't see the change
+const markDone = (id: number) => {
+  todos.find(t => t.id === id)!.done = true   // mutates in place
+  setTodos(todos)                              // same array reference → no re-render
+}
+
+// ✅ IMMUTABLE — new array reference triggers re-render
+const markDone = (id: number) => {
+  setTodos(prev =>
+    prev.map(t => t.id === id ? { ...t, done: true } : t)
+  )
+}
+
+// ✅ Adding to array
+setTodos(prev => [...prev, { id: Date.now(), text: 'New task', done: false }])
+
+// ✅ Removing from array
+setTodos(prev => prev.filter(t => t.id !== id))
+```
+
+## Common Mistakes
+
+| Mistake | Why it's wrong | Fix |
+|---|---|---|
+| Mutating state directly | React uses reference equality; same ref = no re-render | Always return new objects/arrays |
+| Not using functional updater | Stale closure in async/batched updates | Use `prev => prev + 1` form |
+| Storing derived data in state | Creates sync bugs and double source of truth | Compute from existing state |
+| Initializing state from props | State doesn't update when props change | Use props directly or `useEffect` |
+| Setting state in render | Creates infinite render loop | Only set state in handlers or effects |
+
+## Beginner → Enterprise Patterns
+
+### Beginner: Toggle
+
+```tsx
+const [open, setOpen] = useState(false)
+<button onClick={() => setOpen(v => !v)}>Toggle</button>
+```
+
+### Intermediate: Form state
+
+```tsx
+const [form, setForm] = useState({ email: '', password: '' })
+const update = (field: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
+  setForm(prev => ({ ...prev, [field]: e.target.value }))
+
+<input value={form.email} onChange={update('email')} />
+```
+
+### Advanced: Optimistic updates
+
+```tsx
+const [todos, setTodos] = useState(serverTodos)
+
+const deleteTodo = async (id: number) => {
+  // Optimistically remove before API call
+  setTodos(prev => prev.filter(t => t.id !== id))
+  try {
+    await api.deleteTodo(id)
+  } catch {
+    // Roll back on failure
+    setTodos(serverTodos)
+    toast.error('Failed to delete')
+  }
+}
+```
+
+<Challenge title="Build an undo/redo counter">
+Extend a simple counter to support **undo** (go back one step) and **redo** (go forward):
+
+Store the count history as an array and keep a pointer to the current position.
+
+```tsx
+const [history, setHistory] = useState([0])      // [0, 1, 2, 1, 3, ...]
+const [pointer, setPointer] = useState(0)         // index into history
+const count = history[pointer]
+
+const increment = () => {
+  // trim future history (redo stack), then push
+  const next = history.slice(0, pointer + 1)
+  setHistory([...next, count + 1])
+  setPointer(p => p + 1)
+}
+// implement: decrement, undo (pointer - 1), redo (pointer + 1)
+```
+</Challenge>
+
+<Challenge title="Add a reset with confirmation">
+Modify the Shopping Cart example above so clicking "Reset" shows a confirmation message first:
+
+`"Are you sure? This will remove all N items."`
+
+Two buttons appear: "Confirm reset" and "Cancel". Only clicking Confirm actually resets.
+
+Hint: you'll need a new `pendingReset: boolean` state.
+</Challenge>
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- `useState` stores a **persistent value** that survives re-renders and triggers a re-render when changed
+- Always use the **functional updater** `setState(prev => ...)` when new state depends on previous
+- Use **lazy initialization** `useState(() => computeExpensive())` for expensive initial values
+- State is **immutable** — always return new references for objects and arrays
+- Keep state **minimal** — derive everything else from it
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "What is useState and when would you use it?",
+    answer: "useState is a React hook that adds local state to a functional component. It returns a state value and a setter function. You'd use it for any UI state that needs to persist across renders and trigger re-renders when changed: toggle visibility, track input values, store fetched data, manage counters, etc. Use it for state that only the component and its children need — for global state, reach for Context or Redux.",
+    level: "junior"
+  },
+  {
+    question: "Why should you use the functional updater form of setState?",
+    answer: "The functional updater `setState(prev => prev + 1)` ensures you're working with the latest state value, not a stale closure. This matters in: (1) event handlers that fire multiple times rapidly — React may batch updates, (2) async handlers where state may have changed by the time the callback executes, (3) useEffect that captures state in its closure. When you write `setCount(count + 1)`, 'count' is captured from the render closure and may be outdated. `setCount(prev => prev + 1)` receives the true latest value from React.",
+    level: "mid"
+  },
+  {
+    question: "How does React batch state updates and what are the implications?",
+    answer: "React 18 automatically batches all state updates regardless of where they happen (event handlers, promises, timeouts, native events). Multiple setState calls in a single event handler result in only one re-render. Implication: if you set 3 pieces of state in a handler, the component re-renders once with all 3 values updated — not 3 times. To opt out of batching for a specific update, use ReactDOM.flushSync(() => setState(...)). This batching is why the functional updater is important — without it, multiple setCount(count + 1) calls in a batch still only result in +1.",
+    level: "senior"
+  },
+  {
+    question: "When would you use useReducer instead of useState and what are the architectural implications?",
+    answer: "Prefer useReducer when: state has complex update logic with multiple sub-values, next state depends on multiple previous values simultaneously, or state transitions follow a clear set of business rules (state machine). useState is fine for simple values. For enterprise apps, useReducer enforces explicit action types that are testable in isolation, mirrors Redux patterns so developers can reason about state machines, and makes state transitions auditable (log all actions). It also enables immer-style immutable updates via 'use-immer' package. The reducer pattern also scales to extracting logic into a custom hook that returns dispatch, hiding implementation details.",
+    level: "enterprise"
+  }
+]} />

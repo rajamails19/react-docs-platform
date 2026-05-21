@@ -1,0 +1,202 @@
+---
+title: React Design System
+description: Build a scalable design system with React — component APIs, theming, accessibility, documentation with Storybook.
+category: Enterprise Architecture
+order: 3
+slug: enterprise/design-system
+difficulty: advanced
+estimatedTime: 15
+tags: [design system, component library, Storybook, tokens, accessibility, theming]
+lastUpdated: 2024-01-15
+---
+
+# React Design System
+
+A design system is a shared library of reusable components, tokens, and guidelines that ensures visual and behavioral consistency across a product. At scale, it's owned by a dedicated team and consumed by every product team.
+
+## Design Tokens
+
+Tokens are the atomic values of your design — colors, spacing, typography. They create a single source of truth:
+
+```ts
+// packages/tokens/src/index.ts
+export const tokens = {
+  color: {
+    brand: {
+      50:  '#eff6ff',
+      100: '#dbeafe',
+      500: '#3b82f6',
+      600: '#2563eb',
+      900: '#1e3a8a',
+    },
+    neutral: {
+      50:  '#f9fafb',
+      100: '#f3f4f6',
+      500: '#6b7280',
+      900: '#111827',
+    },
+    semantic: {
+      success: '#10b981',
+      warning: '#f59e0b',
+      error:   '#ef4444',
+    },
+  },
+  spacing: {
+    1: '0.25rem',   // 4px
+    2: '0.5rem',    // 8px
+    4: '1rem',      // 16px
+    8: '2rem',      // 32px
+  },
+  font: {
+    size: { sm: '0.875rem', base: '1rem', lg: '1.125rem', xl: '1.25rem' },
+    weight: { normal: '400', medium: '500', semibold: '600', bold: '700' },
+  },
+  radius: { sm: '0.25rem', md: '0.375rem', lg: '0.5rem', full: '9999px' },
+} as const
+```
+
+## Component API Design
+
+Every component should have a consistent, predictable API:
+
+```tsx
+// Button component with accessible, typed API
+interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?:  'primary' | 'secondary' | 'ghost' | 'danger'
+  size?:     'sm' | 'md' | 'lg'
+  isLoading?: boolean
+  leftIcon?:  React.ReactNode
+  rightIcon?: React.ReactNode
+}
+
+export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
+  ({ variant = 'primary', size = 'md', isLoading, leftIcon, rightIcon, children, disabled, className, ...rest }, ref) => {
+    return (
+      <button
+        ref={ref}
+        className={cn(buttonVariants({ variant, size }), className)}
+        disabled={disabled || isLoading}
+        aria-busy={isLoading}
+        {...rest}
+      >
+        {isLoading && <Spinner size={size} aria-hidden />}
+        {!isLoading && leftIcon && <span aria-hidden>{leftIcon}</span>}
+        {children}
+        {!isLoading && rightIcon && <span aria-hidden>{rightIcon}</span>}
+      </button>
+    )
+  }
+)
+Button.displayName = 'Button'
+```
+
+## Theming with CSS Custom Properties
+
+```tsx
+// Theme provider injects CSS variables
+function ThemeProvider({ theme, children }: { theme: 'light' | 'dark'; children: React.ReactNode }) {
+  return (
+    <div data-theme={theme} className="theme-root">
+      {children}
+    </div>
+  )
+}
+
+// CSS
+.theme-root[data-theme="light"] {
+  --color-bg: #ffffff;
+  --color-text: #111827;
+  --color-border: #e5e7eb;
+}
+
+.theme-root[data-theme="dark"] {
+  --color-bg: #0f172a;
+  --color-text: #f1f5f9;
+  --color-border: #334155;
+}
+
+// Components use the variables — theme-agnostic
+.card {
+  background: var(--color-bg);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+}
+```
+
+## Storybook for Documentation
+
+```tsx
+// Button.stories.tsx
+import type { Meta, StoryObj } from '@storybook/react'
+import { Button } from './Button'
+
+const meta: Meta<typeof Button> = {
+  component: Button,
+  tags: ['autodocs'],  // generates docs from JSDoc + props
+  argTypes: {
+    variant:  { control: 'select', options: ['primary', 'secondary', 'ghost', 'danger'] },
+    size:     { control: 'radio',  options: ['sm', 'md', 'lg'] },
+    isLoading: { control: 'boolean' },
+  },
+}
+export default meta
+
+type Story = StoryObj<typeof Button>
+
+export const Primary: Story   = { args: { children: 'Click me', variant: 'primary' } }
+export const Loading: Story   = { args: { children: 'Saving...', isLoading: true } }
+export const Danger: Story    = { args: { children: 'Delete', variant: 'danger' } }
+export const WithIcon: Story  = {
+  args: { children: 'Save', leftIcon: <SaveIcon size={16} /> }
+}
+```
+
+## Accessibility Requirements
+
+Every component must meet WCAG 2.1 AA:
+
+```tsx
+// ✅ Accessible form components
+function FormField({ label, error, required, children, id }: FormFieldProps) {
+  const fieldId = id ?? useId()
+  const errorId = `${fieldId}-error`
+
+  return (
+    <div>
+      <label htmlFor={fieldId}>
+        {label}
+        {required && <span aria-label="required"> *</span>}
+      </label>
+      {React.cloneElement(children as React.ReactElement, {
+        id: fieldId,
+        'aria-invalid': !!error,
+        'aria-describedby': error ? errorId : undefined,
+        required,
+      })}
+      {error && (
+        <p id={errorId} role="alert" className="error">
+          {error}
+        </p>
+      )}
+    </div>
+  )
+}
+```
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- Design tokens (colors, spacing, typography) are the atomic primitives — centralize them
+- Use `React.forwardRef` + `displayName` for all components to support refs and DevTools
+- CSS Custom Properties enable runtime theming without JavaScript re-renders
+- Storybook documents components interactively — use `autodocs` for zero-config documentation
+- Every component must be accessible: proper labels, ARIA attributes, keyboard navigation, focus management
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "How do you manage breaking changes in a shared component library?",
+    answer: "Use semantic versioning strictly: patch for bug fixes, minor for backwards-compatible additions, major for breaking changes. Communication strategy: (1) Deprecate before removing — add a console.warn and JSDoc @deprecated for 1-2 minor versions before removing. (2) Codemods — provide automated migration scripts for breaking changes (AST transforms using jscodeshift). (3) Changelogs — document every change in CHANGELOG.md with migration guides for breaking changes. (4) Release candidates — publish beta/rc versions for teams to test before the final release. (5) Canary builds — continuous publishing from main for teams that want to track HEAD. The key tension: moving fast for innovation vs stability for consuming teams. Err toward stability — breaking changes in shared libraries are multiplied by every team that consumes them.",
+    level: "senior"
+  }
+]} />

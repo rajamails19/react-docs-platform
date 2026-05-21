@@ -1,0 +1,164 @@
+---
+title: React Server Components
+description: Understand React Server Components — what runs on the server vs the client, when to use each, and how they change data fetching.
+category: Next.js
+order: 3
+slug: nextjs/server-components
+difficulty: advanced
+estimatedTime: 15
+tags: [server components, RSC, client components, use client, streaming, suspense]
+lastUpdated: 2024-01-15
+---
+
+# React Server Components
+
+React Server Components (RSC) render on the server and send HTML (not JavaScript) to the browser. The result: smaller bundles, direct database access, and no `useEffect` for data fetching.
+
+## Server vs Client Components
+
+```
+Server Component (default in Next.js App Router)
+  ✅ Can be async — fetch data directly
+  ✅ Direct database/filesystem access
+  ✅ No JavaScript sent to client — smaller bundle
+  ✅ Access environment variables (secrets safe)
+  ❌ No useState, useEffect, useRef
+  ❌ No browser APIs (window, localStorage)
+  ❌ No event handlers (onClick)
+
+Client Component ('use client' at the top)
+  ✅ useState, useEffect, useRef — full React
+  ✅ Browser APIs and event handlers
+  ✅ Real-time interactions, animations
+  ❌ Cannot be async (awaiting in components not supported on client)
+  ❌ Adds JavaScript to the bundle
+```
+
+## Server Component Example
+
+```tsx
+// app/dashboard/page.tsx — Server Component (no 'use client')
+import { db } from '@/lib/db'
+
+export default async function Dashboard() {
+  // Direct DB query — no API, no useEffect, no loading state
+  const [user, stats] = await Promise.all([
+    db.user.findUnique({ where: { id: getCurrentUserId() } }),
+    db.analytics.getStats({ period: 'last30days' }),
+  ])
+
+  return (
+    <div>
+      <h1>Welcome, {user?.name}</h1>
+      <StatsGrid stats={stats} />         {/* Server Component */}
+      <InteractiveChart data={stats} />    {/* Client Component */}
+    </div>
+  )
+}
+```
+
+## Client Component
+
+```tsx
+// components/InteractiveChart.tsx
+'use client'
+
+import { useState } from 'react'
+import { AreaChart, Area } from 'recharts'
+
+export function InteractiveChart({ data }: { data: Stats[] }) {
+  const [period, setPeriod] = useState<'7d' | '30d' | '90d'>('30d')
+
+  return (
+    <div>
+      <div className="tabs">
+        {(['7d', '30d', '90d'] as const).map(p => (
+          <button key={p} onClick={() => setPeriod(p)}>{p}</button>
+        ))}
+      </div>
+      <AreaChart data={data.filter(d => d.period === period)}>
+        <Area dataKey="value" />
+      </AreaChart>
+    </div>
+  )
+}
+```
+
+## Composition: Server Wraps Client
+
+```tsx
+// ✅ Server Component passes data to Client Component
+// Server Component
+async function ProductPage({ id }: { id: string }) {
+  const product = await db.product.findUnique({ where: { id } })
+
+  return (
+    <div>
+      <h1>{product.name}</h1>
+      <p>{product.description}</p>
+      {/* Pass serializable data to Client Component */}
+      <AddToCartButton productId={product.id} price={product.price} />
+    </div>
+  )
+}
+
+// Client Component — receives data as props
+'use client'
+function AddToCartButton({ productId, price }: { productId: string; price: number }) {
+  const { addItem } = useCart()
+  return (
+    <button onClick={() => addItem({ productId, price })}>
+      Add to cart — ${price}
+    </button>
+  )
+}
+```
+
+## Streaming with Suspense
+
+```tsx
+// app/page.tsx
+import { Suspense } from 'react'
+
+export default function Home() {
+  return (
+    <div>
+      <h1>Dashboard</h1>
+
+      {/* Streams immediately */}
+      <Suspense fallback={<StatsSkeleton />}>
+        <SlowStats />          {/* takes 2s to load */}
+      </Suspense>
+
+      <Suspense fallback={<FeedSkeleton />}>
+        <ActivityFeed />       {/* takes 500ms to load */}
+      </Suspense>
+    </div>
+  )
+}
+
+async function SlowStats() {
+  const data = await fetch('/api/stats')  // waits on server, streams when ready
+  return <StatsGrid data={data} />
+}
+```
+
+The page title appears instantly. `ActivityFeed` streams in at 500ms. `SlowStats` streams at 2s. No waiting for the slowest component.
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- Server Components render on the server — no JS sent to client, direct DB access, async by default
+- Client Components (`'use client'`) handle interactivity — useState, events, browser APIs
+- Pass data from Server to Client via serializable props (strings, numbers, plain objects)
+- Wrap slow Server Components in `<Suspense>` for streaming — fast parts appear immediately
+- Don't add `'use client'` to everything — push it to the leaf components that need interactivity
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "What is the 'use client' boundary and how does it affect child components?",
+    answer: "The 'use client' directive at the top of a file marks that file and all its imports as Client Components. It creates a boundary: everything in the subtree becomes client-side JavaScript. This means: (1) If a Server Component imports a Client Component, everything the Client Component imports also becomes client code. (2) You cannot import a Server Component inside a Client Component — but you CAN pass Server Components as children/props (they render on the server and pass HTML). Best practice: keep 'use client' at the leaves — small interactive components like buttons, forms, and charts. Keep data fetching and heavy components as Server Components.",
+    level: "senior"
+  }
+]} />

@@ -1,0 +1,873 @@
+---
+title: Protected Routes & Authentication Guards
+description: Implement authentication-based route guarding, role-based access control, redirect-after-login flows, and token validation with React Router v6.
+category: Routing
+order: 3
+slug: routing/protected-routes
+difficulty: advanced
+estimatedTime: 25
+tags: [react router, protected routes, authentication, authorization, role-based access, guards, redirect, react query]
+lastUpdated: "2024-01-15"
+---
+
+# Protected Routes & Authentication Guards
+
+Protected routes restrict access to certain parts of your application based on authentication state, user roles, or permissions. Rather than checking auth in every page component, you build a reusable guard that wraps entire route sections.
+
+<Callout type="info">
+This guide covers React Router v6 with TypeScript. The patterns here are production-tested and work with any auth system — JWT tokens, session cookies, OAuth, or a full auth library like Auth.js (NextAuth).
+</Callout>
+
+## The Core Problem
+
+Without route protection, any user can navigate to `/dashboard`, `/admin`, or `/settings` by typing the URL directly. The components on those pages might make API calls that fail, or worse, render data from another user's session.
+
+The solution: intercept navigation at the router level, check the auth state, and redirect unauthenticated users to the login page — while preserving where they were trying to go.
+
+## Authentication Flow Overview
+
+<MermaidDiagram chart={`
+flowchart TD
+    A[User navigates to /dashboard] --> B{Is user authenticated?}
+    B -->|No| C[Save current location in state]
+    C --> D[Redirect to /login]
+    D --> E[User logs in]
+    E --> F{Login successful?}
+    F -->|No| G[Show error, stay on /login]
+    F -->|Yes| H[Read location.state.from]
+    H --> I{Was there a 'from' location?}
+    I -->|Yes| J[Navigate to original destination]
+    I -->|No| K[Navigate to /dashboard default]
+    B -->|Yes| L[Render protected component]
+    J --> L
+    K --> L
+
+    style D fill:#ef4444,color:#fff
+    style L fill:#10b981,color:#fff
+    style E fill:#3b82f6,color:#fff
+`} />
+
+## Building the Auth Context
+
+Before creating route guards, you need a reliable auth state. Start with an auth context that exposes the current user and auth operations.
+
+```tsx
+// contexts/AuthContext.tsx
+import { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import type { FC, ReactNode } from 'react'
+
+export interface User {
+  id: string
+  email: string
+  name: string
+  role: 'user' | 'admin' | 'moderator'
+}
+
+interface AuthContextValue {
+  user: User | null
+  isLoading: boolean
+  isAuthenticated: boolean
+  login: (email: string, password: string) => Promise<void>
+  logout: () => Promise<void>
+}
+
+const AuthContext = createContext<AuthContextValue | null>(null)
+
+export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState<User | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+
+  // Validate token on mount — check if stored session is still valid
+  useEffect(() => {
+    const validateSession = async () => {
+      const token = localStorage.getItem('auth_token')
+      if (!token) {
+        setIsLoading(false)
+        return
+      }
+      try {
+        const response = await fetch('/api/auth/me', {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (response.ok) {
+          const userData = await response.json()
+          setUser(userData)
+        } else {
+          // Token is invalid or expired — clear it
+          localStorage.removeItem('auth_token')
+        }
+      } catch {
+        localStorage.removeItem('auth_token')
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    validateSession()
+  }, [])
+
+  const login = useCallback(async (email: string, password: string) => {
+    const response = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    })
+    if (!response.ok) {
+      throw new Error('Invalid credentials')
+    }
+    const { token, user: userData } = await response.json()
+    localStorage.setItem('auth_token', token)
+    setUser(userData)
+  }, [])
+
+  const logout = useCallback(async () => {
+    await fetch('/api/auth/logout', { method: 'POST' })
+    localStorage.removeItem('auth_token')
+    setUser(null)
+  }, [])
+
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        isLoading,
+        isAuthenticated: user !== null,
+        login,
+        logout,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  )
+}
+
+export function useAuth(): AuthContextValue {
+  const context = useContext(AuthContext)
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider')
+  }
+  return context
+}
+```
+
+<Callout type="warning">
+Always validate tokens server-side on the initial page load. Storing a user object in `localStorage` directly is a security risk — an expired or revoked token in storage could let users past your front-end guards while your API correctly rejects them. The `/api/auth/me` call in `validateSession` is the correct pattern.
+</Callout>
+
+## The `RequireAuth` Component
+
+`RequireAuth` is a guard component that checks authentication and redirects to login if the user is not authenticated. It preserves the attempted URL so you can redirect back after login.
+
+```tsx
+// components/auth/RequireAuth.tsx
+import { Navigate, Outlet, useLocation } from 'react-router-dom'
+import { useAuth } from '../../contexts/AuthContext'
+
+interface RequireAuthProps {
+  redirectTo?: string
+}
+
+export function RequireAuth({ redirectTo = '/login' }: RequireAuthProps) {
+  const { isAuthenticated, isLoading } = useAuth()
+  const location = useLocation()
+
+  // Show nothing while we validate the stored token
+  // This prevents a flash of the login page on refresh
+  if (isLoading) {
+    return <FullPageSpinner />
+  }
+
+  if (!isAuthenticated) {
+    // Preserve the current location in navigation state
+    // The login page can read this and redirect back after login
+    return (
+      <Navigate
+        to={redirectTo}
+        state={{ from: location }}
+        replace
+      />
+    )
+  }
+
+  // User is authenticated — render the protected route
+  return <Outlet />
+}
+
+function FullPageSpinner() {
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      height: '100vh',
+    }}>
+      <div className="spinner" />
+    </div>
+  )
+}
+```
+
+The `state={{ from: location }}` is critical. It passes the attempted URL to the login page through React Router's navigation state, not via query parameters (which can leak sensitive path data into logs).
+
+## Integrating `RequireAuth` Into the Route Tree
+
+```tsx
+// App.tsx
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { AuthProvider } from './contexts/AuthContext'
+import { RequireAuth } from './components/auth/RequireAuth'
+import { RequireRole } from './components/auth/RequireRole'
+
+function App() {
+  return (
+    <BrowserRouter>
+      <AuthProvider>
+        <Routes>
+          {/* Public routes — no auth required */}
+          <Route path="/" element={<Home />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="/pricing" element={<Pricing />} />
+
+          {/* Protected routes — require authentication */}
+          <Route element={<RequireAuth />}>
+            <Route path="/dashboard" element={<DashboardLayout />}>
+              <Route index element={<Overview />} />
+              <Route path="analytics" element={<Analytics />} />
+              <Route path="profile" element={<Profile />} />
+              <Route path="settings" element={<Settings />} />
+            </Route>
+          </Route>
+
+          {/* Role-protected routes — require admin */}
+          <Route element={<RequireAuth />}>
+            <Route element={<RequireRole role="admin" />}>
+              <Route path="/admin" element={<AdminLayout />}>
+                <Route index element={<AdminDashboard />} />
+                <Route path="users" element={<UserManagement />} />
+                <Route path="audit-log" element={<AuditLog />} />
+              </Route>
+            </Route>
+          </Route>
+
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </AuthProvider>
+    </BrowserRouter>
+  )
+}
+```
+
+<Callout type="tip">
+`RequireAuth` is a pathless layout route — it has no `path` prop and exists purely to guard child routes. This is the idiomatic React Router v6 pattern for route-level middleware.
+</Callout>
+
+## The Login Page — Redirect After Login
+
+The login page reads `location.state.from` to redirect users back to where they were trying to go.
+
+```tsx
+// pages/Login.tsx
+import { useState, FormEvent } from 'react'
+import { useNavigate, useLocation, Link } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
+
+interface LocationState {
+  from?: { pathname: string; search: string; hash: string }
+}
+
+export function Login() {
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const { login, isAuthenticated } = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
+
+  // If already logged in, redirect away from login page
+  const state = location.state as LocationState
+  const from = state?.from?.pathname ?? '/dashboard'
+
+  // Edge case: user is already authenticated and navigates to /login
+  if (isAuthenticated) {
+    return <Navigate to={from} replace />
+  }
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault()
+    setError(null)
+    setIsSubmitting(true)
+
+    try {
+      await login(email, password)
+      // Navigate to where they were trying to go, or dashboard by default
+      // `replace: true` prevents the login page from appearing in history
+      navigate(from, { replace: true })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Login failed')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="login-container">
+      <h1>Sign in to your account</h1>
+
+      {from !== '/dashboard' && (
+        <p className="redirect-notice">
+          You need to sign in to access that page.
+        </p>
+      )}
+
+      {error && <p className="error-message" role="alert">{error}</p>}
+
+      <form onSubmit={handleSubmit}>
+        <div className="field">
+          <label htmlFor="email">Email</label>
+          <input
+            id="email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            autoComplete="email"
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="password">Password</label>
+          <input
+            id="password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            autoComplete="current-password"
+          />
+        </div>
+        <button type="submit" disabled={isSubmitting}>
+          {isSubmitting ? 'Signing in...' : 'Sign in'}
+        </button>
+      </form>
+
+      <p>
+        Don't have an account? <Link to="/register">Register</Link>
+      </p>
+    </div>
+  )
+}
+```
+
+## Role-Based Access Control
+
+Many apps have multiple user types — admins, moderators, regular users — each with different route access. Build a `RequireRole` component that works on top of `RequireAuth`.
+
+```tsx
+// components/auth/RequireRole.tsx
+import { Navigate, Outlet, useLocation } from 'react-router-dom'
+import { useAuth } from '../../contexts/AuthContext'
+import type { User } from '../../contexts/AuthContext'
+
+type Role = User['role']
+
+interface RequireRoleProps {
+  role: Role | Role[]
+  fallbackPath?: string
+}
+
+export function RequireRole({ role, fallbackPath = '/unauthorized' }: RequireRoleProps) {
+  const { user } = useAuth()
+  const location = useLocation()
+
+  // Should always be inside RequireAuth, but guard defensively
+  if (!user) {
+    return <Navigate to="/login" state={{ from: location }} replace />
+  }
+
+  const allowedRoles = Array.isArray(role) ? role : [role]
+  const hasPermission = allowedRoles.includes(user.role)
+
+  if (!hasPermission) {
+    return <Navigate to={fallbackPath} replace />
+  }
+
+  return <Outlet />
+}
+```
+
+```tsx
+// Usage: multiple roles allowed
+<Route element={<RequireRole role={['admin', 'moderator']} />}>
+  <Route path="/moderation" element={<ModerationPanel />} />
+</Route>
+
+// Usage: single required role
+<Route element={<RequireRole role="admin" fallbackPath="/dashboard" />}>
+  <Route path="/admin" element={<AdminDashboard />} />
+</Route>
+```
+
+<Callout type="danger">
+Front-end route guards are a UX convenience, not a security measure. Always enforce role-based access on your server/API as well. A determined user can bypass client-side guards by manipulating JavaScript. Your API must independently verify that the authenticated user has the required role for each operation.
+</Callout>
+
+## Fine-Grained Permission Checks
+
+For more granular control than roles, use a permission-based system:
+
+```tsx
+// hooks/usePermissions.ts
+import { useAuth } from '../contexts/AuthContext'
+
+type Permission =
+  | 'users:read'
+  | 'users:write'
+  | 'users:delete'
+  | 'analytics:read'
+  | 'settings:write'
+
+const ROLE_PERMISSIONS: Record<string, Permission[]> = {
+  user: ['analytics:read'],
+  moderator: ['analytics:read', 'users:read'],
+  admin: ['users:read', 'users:write', 'users:delete', 'analytics:read', 'settings:write'],
+}
+
+export function usePermissions() {
+  const { user } = useAuth()
+
+  const can = (permission: Permission): boolean => {
+    if (!user) return false
+    return ROLE_PERMISSIONS[user.role]?.includes(permission) ?? false
+  }
+
+  const canAll = (...permissions: Permission[]): boolean =>
+    permissions.every((p) => can(p))
+
+  const canAny = (...permissions: Permission[]): boolean =>
+    permissions.some((p) => can(p))
+
+  return { can, canAll, canAny }
+}
+```
+
+```tsx
+// Usage in a component
+export function UserManagement() {
+  const { can } = usePermissions()
+
+  return (
+    <div>
+      <UserList />
+      {can('users:write') && <CreateUserButton />}
+      {can('users:delete') && <DeleteUserButton />}
+    </div>
+  )
+}
+```
+
+## Integration with React Query
+
+React Query is a natural fit for auth state because it handles caching, background refetching, and loading states. Replace the `useEffect`-based token validation with a query:
+
+```tsx
+// hooks/useCurrentUser.ts
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+
+async function fetchCurrentUser() {
+  const token = localStorage.getItem('auth_token')
+  if (!token) return null
+
+  const response = await fetch('/api/auth/me', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+
+  if (response.status === 401) {
+    localStorage.removeItem('auth_token')
+    return null
+  }
+
+  if (!response.ok) throw new Error('Failed to fetch user')
+  return response.json()
+}
+
+export function useCurrentUser() {
+  return useQuery({
+    queryKey: ['auth', 'current-user'],
+    queryFn: fetchCurrentUser,
+    staleTime: 5 * 60 * 1000,   // Consider user data fresh for 5 minutes
+    retry: false,                 // Don't retry 401s
+  })
+}
+
+export function useLogin() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ email, password }: { email: string; password: string }) => {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      })
+      if (!response.ok) throw new Error('Invalid credentials')
+      return response.json()
+    },
+    onSuccess: ({ token, user }) => {
+      localStorage.setItem('auth_token', token)
+      // Immediately update the cached user — no refetch needed
+      queryClient.setQueryData(['auth', 'current-user'], user)
+    },
+  })
+}
+
+export function useLogout() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: () => fetch('/api/auth/logout', { method: 'POST' }),
+    onSettled: () => {
+      localStorage.removeItem('auth_token')
+      // Clear all cached data on logout
+      queryClient.clear()
+    },
+  })
+}
+```
+
+```tsx
+// contexts/AuthContext.tsx (React Query version)
+import { useCurrentUser, useLogin, useLogout } from '../hooks/useCurrentUser'
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const { data: user, isLoading } = useCurrentUser()
+  const loginMutation = useLogin()
+  const logoutMutation = useLogout()
+
+  const login = useCallback(
+    (email: string, password: string) => loginMutation.mutateAsync({ email, password }),
+    [loginMutation]
+  )
+
+  const logout = useCallback(
+    () => logoutMutation.mutateAsync(),
+    [logoutMutation]
+  )
+
+  return (
+    <AuthContext.Provider
+      value={{
+        user: user ?? null,
+        isLoading,
+        isAuthenticated: !!user,
+        login,
+        logout,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  )
+}
+```
+
+<Callout type="tip">
+React Query's background refetching keeps your auth state fresh. If a token expires mid-session, the next `useCurrentUser` refetch returns `null` and your UI can react by showing a "session expired" message or redirecting to login.
+</Callout>
+
+## Protecting Nested Routes
+
+Guards can be applied at any level of the route tree. You can have a base `RequireAuth` at the top and a `RequireRole` deeper:
+
+```tsx
+<Routes>
+  {/* Base auth guard for entire app (except public routes) */}
+  <Route element={<RequireAuth />}>
+    
+    {/* Regular user section */}
+    <Route path="/dashboard" element={<DashboardLayout />}>
+      <Route index element={<Overview />} />
+      <Route path="profile" element={<Profile />} />
+      
+      {/* Additional role guard for a sub-section */}
+      <Route element={<RequireRole role={['admin', 'moderator']} />}>
+        <Route path="reports" element={<Reports />} />
+      </Route>
+    </Route>
+
+    {/* Admin-only section */}
+    <Route element={<RequireRole role="admin" />}>
+      <Route path="/admin" element={<AdminLayout />}>
+        <Route index element={<AdminHome />} />
+        <Route path="users" element={<Users />} />
+      </Route>
+    </Route>
+
+  </Route>
+
+  {/* These run before RequireAuth, so they're public */}
+  <Route path="/login" element={<Login />} />
+  <Route path="/unauthorized" element={<Unauthorized />} />
+</Routes>
+```
+
+## Logout and Redirect
+
+On logout, clear auth state and redirect to the public home or login page:
+
+```tsx
+// components/LogoutButton.tsx
+import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
+
+export function LogoutButton() {
+  const { logout } = useAuth()
+  const navigate = useNavigate()
+
+  const handleLogout = async () => {
+    await logout()
+    // After clearing auth state, go to login
+    // `replace` prevents navigating back to protected pages with the browser back button
+    navigate('/login', { replace: true })
+  }
+
+  return (
+    <button onClick={handleLogout} className="btn-logout">
+      Sign out
+    </button>
+  )
+}
+```
+
+<Callout type="warning">
+Always use `replace: true` when redirecting after logout. Without it, the browser back button returns users to protected pages. With `replace`, the current route is replaced in the history stack so there is nothing to go back to.
+</Callout>
+
+## Token Validation Strategies
+
+<ComparisonTable
+  columns={["Strategy", "How It Works", "Pros", "Cons"]}
+  rows={[
+    ["localStorage JWT", "Store token in localStorage, send in Authorization header", "Simple, works across tabs", "Vulnerable to XSS — JS can read localStorage"],
+    ["HttpOnly Cookie", "Token stored in HttpOnly cookie, sent automatically", "XSS-resistant (JS cannot read)", "CSRF risk — requires CSRF tokens"],
+    ["Memory Only", "Store token in JS memory (React state/context)", "Most XSS-resistant", "Lost on page refresh — requires refresh token flow"],
+    ["Refresh Token Rotation", "Short-lived access token + HttpOnly refresh token", "Best security", "Complex implementation"],
+  ]}
+/>
+
+For most SPAs, HttpOnly cookies with CSRF protection is the recommended approach. If you use localStorage, ensure your app has a strict Content Security Policy.
+
+## Complete Auth Flow Diagram
+
+<MermaidDiagram chart={`
+sequenceDiagram
+    participant U as User
+    participant R as React App
+    participant G as RequireAuth Guard
+    participant A as Auth Context
+    participant API as Backend API
+
+    Note over U,API: Initial Page Load
+    R->>A: Initialize AuthProvider
+    A->>API: GET /api/auth/me (with stored token)
+    API-->>A: 200 OK: user data
+    A->>R: isAuthenticated = true
+
+    Note over U,API: Navigate to Protected Route
+    U->>R: Navigate to /dashboard
+    R->>G: Check auth state
+    G->>A: useAuth()
+    A-->>G: isAuthenticated = true
+    G->>R: Render <Outlet /> (Dashboard)
+
+    Note over U,API: Unauthenticated Access
+    U->>R: Navigate to /settings (no session)
+    R->>G: Check auth state
+    G->>A: useAuth()
+    A-->>G: isAuthenticated = false
+    G->>R: Navigate to /login, state={from: /settings}
+    U->>R: Submit login form
+    R->>API: POST /api/auth/login
+    API-->>R: 200 OK: token + user
+    R->>A: setUser(), store token
+    R->>U: Navigate to /settings (from state)
+
+    Note over U,API: Logout
+    U->>R: Click "Sign out"
+    R->>API: POST /api/auth/logout
+    R->>A: clearUser(), remove token
+    R->>U: Navigate to /login (replace)
+`} />
+
+## Testing Protected Routes
+
+```tsx
+// tests/ProtectedRoutes.test.tsx
+import { render, screen } from '@testing-library/react'
+import { MemoryRouter, Routes, Route } from 'react-router-dom'
+import { RequireAuth } from '../components/auth/RequireAuth'
+import { AuthContext } from '../contexts/AuthContext'
+
+const mockUser = { id: '1', email: 'alice@example.com', name: 'Alice', role: 'user' as const }
+
+function renderWithAuth(isAuthenticated: boolean, initialPath = '/protected') {
+  const contextValue = {
+    user: isAuthenticated ? mockUser : null,
+    isLoading: false,
+    isAuthenticated,
+    login: jest.fn(),
+    logout: jest.fn(),
+  }
+
+  return render(
+    <AuthContext.Provider value={contextValue}>
+      <MemoryRouter initialEntries={[initialPath]}>
+        <Routes>
+          <Route path="/login" element={<div>Login Page</div>} />
+          <Route element={<RequireAuth />}>
+            <Route path="/protected" element={<div>Protected Content</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    </AuthContext.Provider>
+  )
+}
+
+test('renders protected content when authenticated', () => {
+  renderWithAuth(true)
+  expect(screen.getByText('Protected Content')).toBeInTheDocument()
+})
+
+test('redirects to login when not authenticated', () => {
+  renderWithAuth(false)
+  expect(screen.getByText('Login Page')).toBeInTheDocument()
+  expect(screen.queryByText('Protected Content')).not.toBeInTheDocument()
+})
+```
+
+<InterviewQA questions={[
+  {
+    question: "How do you preserve a user's intended destination after redirecting them to login?",
+    answer: "When RequireAuth detects an unauthenticated user, it renders a <Navigate> component with `state={{ from: location }}` where `location` comes from `useLocation()`. This passes the current location object as navigation state to the login page. On the login page, you read `location.state?.from?.pathname` to get the original path, and after a successful login you call `navigate(from, { replace: true })` to send them there. Using `replace: true` prevents the login page from being in the history stack, so the back button doesn't return them to the login form.",
+    level: "intermediate"
+  },
+  {
+    question: "What is the difference between authentication and authorization in the context of protected routes, and how do you implement both?",
+    answer: "Authentication answers 'who are you?' — it verifies that a user has a valid session. Authorization answers 'what can you do?' — it checks if the authenticated user has permission to access a specific resource. In route protection, RequireAuth handles authentication (redirect to login if no session). RequireRole or permission-based guards handle authorization (redirect to /unauthorized if the user lacks the required role). The two concerns are separated into separate components and layered in the route tree: RequireAuth wraps RequireRole, which wraps the actual route. This keeps each component focused on a single concern.",
+    level: "intermediate"
+  },
+  {
+    question: "Why are client-side protected routes insufficient as a security measure, and what must you also implement?",
+    answer: "Client-side route guards are purely a UX convenience. An attacker can bypass them by: (1) disabling JavaScript, (2) directly calling your API endpoints without going through the UI, or (3) manipulating the JavaScript execution environment. All sensitive data and operations must be protected server-side. Your API must independently verify the JWT or session cookie on every request, check the user's role/permissions for each endpoint, and return 401/403 responses for unauthorized access — regardless of what the front-end says. The client-side guard just prevents legitimate users from seeing a flash of protected UI or making unnecessary API calls that will fail.",
+    level: "advanced"
+  },
+  {
+    question: "How does React Query change the approach to managing authentication state compared to a plain useEffect + useState approach?",
+    answer: "With plain useEffect + useState, you manually manage loading states, error states, and cache invalidation. React Query treats the current user as a server-side resource with a cache key like ['auth', 'current-user']. This gives you: (1) automatic background refetching to keep auth state fresh — useful for detecting expired sessions, (2) shared state across all components using the same query key without a Context Provider, (3) built-in loading/error states, (4) `queryClient.setQueryData()` to optimistically update the user after login without a round-trip, and (5) `queryClient.clear()` on logout to wipe all cached data in one call. The trade-off is adding a dependency; for apps already using React Query, it's almost always the right choice.",
+    level: "advanced"
+  }
+]} />
+
+## Interactive Example — Auth Guard
+
+Toggle the login state and watch the route guard redirect or allow access:
+
+<LiveEditor code={`import { createContext, useContext, useState } from 'react'
+import { MemoryRouter, Routes, Route, Navigate, Link, useLocation, useNavigate, Outlet } from 'react-router-dom'
+
+// ─── Auth context ─────────────────────────────────────────
+const AuthCtx = createContext<{ user: string | null; login: (u: string) => void; logout: () => void }>({ user: null, login: () => {}, logout: () => {} })
+const useAuth = () => useContext(AuthCtx)
+
+function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<string | null>(null)
+  return <AuthCtx.Provider value={{ user, login: setUser, logout: () => setUser(null) }}>{children}</AuthCtx.Provider>
+}
+
+// ─── RequireAuth guard ────────────────────────────────────
+function RequireAuth() {
+  const { user } = useAuth()
+  const location = useLocation()
+  if (!user) return <Navigate to="/login" state={{ from: location }} replace />
+  return <Outlet />
+}
+
+// ─── Pages ────────────────────────────────────────────────
+function LoginPage() {
+  const { login }  = useAuth()
+  const navigate   = useNavigate()
+  const location   = useLocation()
+  const from       = (location.state as { from?: { pathname: string } })?.from?.pathname ?? '/dashboard'
+
+  return (
+    <div style={{ padding: 24, textAlign: 'center' }}>
+      <div style={{ fontSize: 32, marginBottom: 8 }}>🔒</div>
+      <h3 style={{ margin: '0 0 4px' }}>Login required</h3>
+      <p style={{ fontSize: 13, color: '#6b7280', margin: '0 0 16px' }}>After login you'll be redirected to: <strong>{from}</strong></p>
+      <button onClick={() => { login('Alice'); navigate(from, { replace: true }) }}
+        style={{ padding: '10px 24px', background: '#6366f1', color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}>
+        Log in as Alice
+      </button>
+    </div>
+  )
+}
+
+function Dashboard() {
+  const { user, logout } = useAuth()
+  const navigate = useNavigate()
+  return (
+    <div style={{ padding: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <h3 style={{ margin: 0 }}>Dashboard</h3>
+        <button onClick={() => { logout(); navigate('/login', { replace: true }) }} style={{ padding: '6px 12px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>Log out</button>
+      </div>
+      <p style={{ fontSize: 14, color: '#374151' }}>Welcome, <strong>{user}</strong>! This route is protected by RequireAuth.</p>
+      <Link to="/settings" style={{ color: '#6366f1', fontSize: 14 }}>→ Go to Settings</Link>
+    </div>
+  )
+}
+function Settings() {
+  return <div style={{ padding: 20, fontSize: 14 }}>⚙ Settings — also protected by the same RequireAuth wrapper.</div>
+}
+
+function Nav() {
+  const { user } = useAuth()
+  return (
+    <nav style={{ display: 'flex', gap: 12, padding: '10px 20px', background: '#6366f1', borderRadius: '12px 12px 0 0' }}>
+      <Link to="/dashboard" style={{ color: 'white', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>Dashboard</Link>
+      <Link to="/settings"  style={{ color: 'white', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>Settings</Link>
+      {!user && <Link to="/login" style={{ color: '#c7d2fe', fontSize: 13, textDecoration: 'none' }}>Login</Link>}
+    </nav>
+  )
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <MemoryRouter initialEntries={['/dashboard']}>
+        <div style={{ fontFamily: 'sans-serif', border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden', maxWidth: 440 }}>
+          <Nav />
+          <div style={{ minHeight: 180 }}>
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
+              <Route element={<RequireAuth />}>
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/settings"  element={<Settings />} />
+              </Route>
+              <Route path="*" element={<Navigate to="/dashboard" replace />} />
+            </Routes>
+          </div>
+        </div>
+      </MemoryRouter>
+    </AuthProvider>
+  )
+}`} dependencies={{ "react-router-dom": "^6.26.0" }} />
+
+## Summary
+
+- **`RequireAuth`** is a pathless layout route that checks `isAuthenticated` and redirects to login, preserving the current location in navigation state.
+- **Preserve `from` location** via `state={{ from: location }}` on the `<Navigate>` call, and redirect back with `navigate(from, { replace: true })` after login.
+- **`RequireRole`** extends auth guarding with role checks, and can accept an array of allowed roles.
+- **Nest guards** by composing `RequireAuth` and `RequireRole` as pathless wrappers around route sections.
+- **React Query** simplifies auth state management with automatic caching, background refetch, and shared state.
+- **Front-end guards are UX only** — always enforce auth and authorization on your API.
+- Use `replace: true` on all auth redirects to prevent back-button exploitation.

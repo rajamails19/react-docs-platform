@@ -1,0 +1,501 @@
+---
+title: Props Basics
+description: Learn how to pass data into React components with props — the fundamental mechanism for component communication in React.
+category: Props
+order: 1
+slug: props/props-basics
+difficulty: beginner
+estimatedTime: 14
+tags: [props, JSX, children, data flow, TypeScript, component communication]
+lastUpdated: "2024-01-15"
+---
+
+# Props Basics
+
+**Props** (short for *properties*) are the inputs to a React component. They are the mechanism by which a parent component passes data down to a child component. Props make components reusable — the same component can render differently based on the props it receives.
+
+<Callout type="info">
+Props flow in one direction: **from parent to child**. This is called "unidirectional data flow" and is a core principle of React's design.
+</Callout>
+
+## Passing Props
+
+Props are written as JSX attributes on the component's opening tag, exactly like HTML attributes.
+
+```tsx
+// Parent passes props as JSX attributes
+function App() {
+  return (
+    <UserCard
+      name="Sarah Connor"
+      role="Engineer"
+      avatarUrl="/avatars/sarah.jpg"
+      isOnline={true}
+      followerCount={1024}
+    />
+  )
+}
+```
+
+## Receiving Props
+
+The simplest way to receive props is as a function parameter. The best practice in modern React is to **destructure** them immediately.
+
+```tsx
+// ✅ Destructured — clean and readable
+function UserCard({ name, role, avatarUrl, isOnline, followerCount }: UserCardProps) {
+  return (
+    <div>
+      <img src={avatarUrl} alt={name} />
+      <h3>{name}</h3>
+      <p>{role}</p>
+      {isOnline && <span className="badge-online">Online</span>}
+      <p>{followerCount} followers</p>
+    </div>
+  )
+}
+
+// Also valid but less clean — access via props.name, props.role, etc.
+function UserCard(props: UserCardProps) {
+  return <h3>{props.name}</h3>
+}
+```
+
+## Prop Types
+
+Props can be any valid JavaScript value. Here is a comprehensive breakdown:
+
+### Strings
+
+```tsx
+<Button label="Submit" />
+<Input placeholder="Enter your email" />
+```
+
+Strings are the most common prop type. They don't need curly braces in JSX — quotes work directly (like HTML attributes).
+
+### Numbers
+
+```tsx
+<ProgressBar value={72} max={100} />
+<Rating stars={4} />
+```
+
+Numbers always use curly braces. `value="72"` would pass the string `"72"`, not the number `72`.
+
+### Booleans
+
+```tsx
+{/* Explicit true */}
+<Toggle enabled={true} />
+
+{/* Shorthand — attribute name alone means true */}
+<Toggle enabled />
+
+{/* Explicit false — you must use curly braces */}
+<Toggle enabled={false} />
+```
+
+<Callout type="tip">
+A boolean prop written as just the attribute name (e.g. `<Toggle enabled />`) is equivalent to `enabled={true}`. This matches the HTML behavior for attributes like `disabled` and `checked`.
+</Callout>
+
+### Objects
+
+```tsx
+interface User {
+  id: string
+  name: string
+  email: string
+}
+
+<ProfileCard user={{ id: '1', name: 'Alice', email: 'alice@example.com' }} />
+
+// Or with a variable
+const user: User = { id: '1', name: 'Alice', email: 'alice@example.com' }
+<ProfileCard user={user} />
+```
+
+### Arrays
+
+```tsx
+<TagList tags={['react', 'typescript', 'frontend']} />
+<DataTable rows={userData} columns={columns} />
+```
+
+### Functions
+
+Passing functions as props is how child components communicate back to parents. This pattern is called **callback props** or **lifting state up**.
+
+```tsx
+function SearchBar({ onSearch }: { onSearch: (query: string) => void }) {
+  const [query, setQuery] = useState('')
+
+  return (
+    <form onSubmit={(e) => { e.preventDefault(); onSearch(query) }}>
+      <input value={query} onChange={e => setQuery(e.target.value)} />
+      <button type="submit">Search</button>
+    </form>
+  )
+}
+
+// Parent provides the handler
+function App() {
+  const handleSearch = (query: string) => {
+    console.log('Searching for:', query)
+    // fetch results...
+  }
+
+  return <SearchBar onSearch={handleSearch} />
+}
+```
+
+### ReactNode (children and JSX props)
+
+`React.ReactNode` is the widest type — it accepts any renderable React content.
+
+```tsx
+interface AlertProps {
+  icon: React.ReactNode
+  children: React.ReactNode
+}
+
+function Alert({ icon, children }: AlertProps) {
+  return (
+    <div className="alert">
+      <span className="alert-icon">{icon}</span>
+      <div className="alert-body">{children}</div>
+    </div>
+  )
+}
+
+// Usage
+<Alert icon={<WarningIcon />}>
+  <strong>Warning:</strong> Your session will expire in 5 minutes.
+</Alert>
+```
+
+### The `children` Prop
+
+`children` is a special implicit prop — anything placed between a component's JSX tags becomes `children`.
+
+```tsx
+function Card({ children }: { children: React.ReactNode }) {
+  return <div className="card">{children}</div>
+}
+
+// Usage
+<Card>
+  <h2>Title</h2>
+  <p>Body content</p>
+</Card>
+```
+
+## Shorthand Boolean Props
+
+Any prop written without `=` is implicitly `true`. This mirrors HTML's boolean attribute syntax.
+
+```tsx
+// These are identical:
+<Button disabled={true} />
+<Button disabled />
+
+// These are identical:
+<Input required={true} />
+<Input required />
+```
+
+## Spreading Props
+
+The spread operator passes all properties of an object as individual props. This is useful for forwarding props or building wrapper components.
+
+```tsx
+interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+  label: string
+}
+
+function LabeledInput({ label, ...inputProps }: InputProps) {
+  return (
+    <label>
+      {label}
+      <input {...inputProps} />  {/* forwards id, type, placeholder, onChange, etc. */}
+    </label>
+  )
+}
+
+// Usage — all these attrs flow through to <input>
+<LabeledInput
+  label="Email"
+  type="email"
+  placeholder="you@example.com"
+  required
+  autoComplete="email"
+  onChange={handleChange}
+/>
+```
+
+<Callout type="warning">
+Be careful with prop spreading on HTML elements — passing unknown props to DOM elements (like `isActive` or `fetchData`) generates console warnings. Use destructuring to pluck out non-DOM props before spreading the rest.
+</Callout>
+
+## TypeScript: Typing Props
+
+Always define an interface or type for your props. This provides autocomplete, prevents mistakes, and documents the component API.
+
+```tsx
+interface ButtonProps {
+  // Required props
+  label: string
+  onClick: () => void
+
+  // Optional props (note the ?)
+  variant?: 'primary' | 'secondary' | 'danger'
+  size?: 'sm' | 'md' | 'lg'
+  disabled?: boolean
+  icon?: React.ReactNode
+  className?: string
+
+  // Accept all native button attributes too
+  type?: 'button' | 'submit' | 'reset'
+}
+
+function Button({
+  label,
+  onClick,
+  variant = 'primary',
+  size = 'md',
+  disabled = false,
+  icon,
+  className,
+  type = 'button',
+}: ButtonProps) {
+  return (
+    <button
+      type={type}
+      onClick={onClick}
+      disabled={disabled}
+      className={`btn btn-${variant} btn-${size} ${className ?? ''}`}
+    >
+      {icon && <span className="btn-icon">{icon}</span>}
+      {label}
+    </button>
+  )
+}
+```
+
+## Prop Naming Conventions
+
+| Convention | Usage | Examples |
+|---|---|---|
+| `camelCase` | All prop names | `onClick`, `isLoading`, `maxLength` |
+| `on` prefix | Event/callback props | `onClick`, `onChange`, `onSubmit`, `onClose` |
+| `is/has/can` prefix | Boolean props | `isActive`, `hasError`, `canEdit` |
+| `render` prefix | Render prop / ReactNode | `renderHeader`, `renderItem` |
+| `children` | Default slot | `children` |
+
+## Props Are Read-Only
+
+Props are **immutable** — a component must never modify its own props. This is enforced by React's design and TypeScript.
+
+```tsx
+function BadComponent({ count }: { count: number }) {
+  // ❌ Never do this — mutating props causes undefined behavior
+  count = count + 1
+
+  return <span>{count}</span>
+}
+
+// ✅ If you need a derived value, compute it
+function GoodComponent({ count }: { count: number }) {
+  const displayCount = count + 1
+  return <span>{displayCount}</span>
+}
+
+// ✅ If you need to track changes, use state initialized from props
+function GoodComponent({ initialCount }: { initialCount: number }) {
+  const [count, setCount] = useState(initialCount)
+  return <button onClick={() => setCount(c => c + 1)}>{count}</button>
+}
+```
+
+## Props vs State
+
+<ComparisonTable
+  columns={["Aspect", "Props", "State"]}
+  rows={[
+    ["Source", "Passed from parent", "Initialized and owned by the component"],
+    ["Mutability", "Read-only (immutable)", "Mutable via setState / useState setter"],
+    ["Who controls it", "Parent component", "The component itself"],
+    ["Triggers re-render", "Yes (when parent re-renders)", "Yes (when changed via setter)"],
+    ["Persistence", "Exists as long as parent passes it", "Exists as long as component is mounted"],
+    ["Typical use", "Configuration, data, callbacks", "User interaction, async data, UI toggle state"],
+  ]}
+/>
+
+## Complete Example
+
+```tsx
+import { useState } from 'react'
+
+interface TodoItemProps {
+  id: string
+  text: string
+  completed: boolean
+  priority: 'low' | 'medium' | 'high'
+  tags: string[]
+  onToggle: (id: string) => void
+  onDelete: (id: string) => void
+}
+
+function TodoItem({
+  id,
+  text,
+  completed,
+  priority,
+  tags,
+  onToggle,
+  onDelete,
+}: TodoItemProps) {
+  const priorityColors = {
+    low: '#48bb78',
+    medium: '#f6ad55',
+    high: '#fc8181',
+  }
+
+  return (
+    <li style={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: 12,
+      opacity: completed ? 0.5 : 1,
+      padding: '8px 0',
+    }}>
+      <input
+        type="checkbox"
+        checked={completed}
+        onChange={() => onToggle(id)}
+      />
+      <span style={{ textDecoration: completed ? 'line-through' : 'none' }}>
+        {text}
+      </span>
+      <span style={{
+        width: 8, height: 8, borderRadius: '50%',
+        background: priorityColors[priority],
+        flexShrink: 0,
+      }} />
+      <div style={{ display: 'flex', gap: 4 }}>
+        {tags.map(tag => (
+          <span key={tag} style={{
+            fontSize: 11,
+            background: '#e2e8f0',
+            padding: '2px 6px',
+            borderRadius: 4,
+          }}>
+            {tag}
+          </span>
+        ))}
+      </div>
+      <button onClick={() => onDelete(id)} style={{ marginLeft: 'auto' }}>
+        ×
+      </button>
+    </li>
+  )
+}
+```
+
+<LiveEditor code={`import { useState } from 'react'
+
+function Badge({ label, color = '#4a90e2' }) {
+  return (
+    <span style={{
+      background: color,
+      color: 'white',
+      padding: '3px 10px',
+      borderRadius: 12,
+      fontSize: 12,
+      fontWeight: 600,
+      display: 'inline-block',
+    }}>
+      {label}
+    </span>
+  )
+}
+
+function ProfileCard({ name, role, bio, skills, isVerified, onContact }) {
+  return (
+    <div style={{
+      border: '1px solid #e2e8f0',
+      borderRadius: 12,
+      padding: 24,
+      maxWidth: 360,
+      fontFamily: 'sans-serif',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+        <div style={{
+          width: 48, height: 48, borderRadius: '50%',
+          background: '#667eea', color: 'white',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 20, fontWeight: 700,
+        }}>
+          {name[0]}
+        </div>
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 16 }}>
+            {name} {isVerified && '✓'}
+          </div>
+          <div style={{ color: '#718096', fontSize: 14 }}>{role}</div>
+        </div>
+      </div>
+      <p style={{ color: '#4a5568', fontSize: 14, marginBottom: 12 }}>{bio}</p>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
+        {skills.map(skill => <Badge key={skill} label={skill} />)}
+      </div>
+      <button
+        onClick={onContact}
+        style={{
+          width: '100%', padding: '10px', background: '#667eea',
+          color: 'white', border: 'none', borderRadius: 8,
+          cursor: 'pointer', fontWeight: 600,
+        }}
+      >
+        Contact
+      </button>
+    </div>
+  )
+}
+
+export default function App() {
+  const [contacted, setContacted] = useState(false)
+
+  return (
+    <div style={{ padding: 32 }}>
+      <ProfileCard
+        name="Alex Rivera"
+        role="Senior Frontend Engineer"
+        bio="Building delightful UIs with React and TypeScript. Open source contributor and coffee enthusiast."
+        skills={['React', 'TypeScript', 'GraphQL']}
+        isVerified
+        onContact={() => setContacted(true)}
+      />
+      {contacted && <p style={{ marginTop: 16, color: 'green', fontFamily: 'sans-serif' }}>Message sent!</p>}
+    </div>
+  )
+}`} />
+
+<InterviewQA questions={[
+  {
+    question: "What does 'props are read-only' mean, and why is this important?",
+    answer: "A component must never modify the props it receives. Props are owned by the parent component — the child only borrows them. If a component needs to track a changing value, it should use state initialized from the prop, not mutate the prop itself. This immutability is essential for React's predictability: since props only change when the parent changes them, React can reliably determine when to re-render by comparing prop references. Mutating props would cause invisible side effects and make the data flow unpredictable.",
+    level: "beginner"
+  },
+  {
+    question: "What is the difference between props and state?",
+    answer: "Props are external inputs passed from a parent component — they are read-only and the component doesn't control their value. State is internal, owned and managed by the component itself, and can be updated via setState/useState. A good rule: if data is needed by multiple components or passed from above, it's a prop. If it tracks something the component manages on its own (a toggle, form value, fetched data), it's state. Sometimes the same piece of data starts as a prop and is copied into state when the component needs to modify it.",
+    level: "beginner"
+  },
+  {
+    question: "What are the risks of spreading props onto DOM elements, and how do you avoid them?",
+    answer: "When you spread props (e.g., `<div {...props}>`) onto a native HTML element, any non-standard attributes — like isLoading, fetchData, or customVariant — are forwarded to the DOM and generate browser warnings. The fix is to destructure the component-specific props first, then spread only the remaining valid HTML attributes: `function MyDiv({ isLoading, ...divProps }) { return <div {...divProps} /> }`. Using TypeScript and extending the appropriate HTMLAttributes interface helps catch these issues at compile time.",
+    level: "intermediate"
+  }
+]} />

@@ -1,0 +1,603 @@
+---
+title: Controlled Inputs
+description: Master controlled inputs in React — the value + onChange pattern that makes React the single source of truth for every form field.
+category: Forms
+order: 1
+slug: forms/controlled
+difficulty: beginner
+estimatedTime: 22
+tags: [forms, controlled inputs, useState, onChange, validation, beginner]
+lastUpdated: "2024-01-15"
+---
+
+# Controlled Inputs
+
+A **controlled input** is a form element whose value is driven entirely by React state. React owns the value; the DOM does not. Every keystroke flows through state, giving you complete control over what the input displays, when it updates, and how it validates.
+
+## The Core Pattern: `value` + `onChange`
+
+```tsx
+function NameInput() {
+  const [name, setName] = useState('')
+
+  return (
+    <input
+      type="text"
+      value={name}                        // React state → DOM
+      onChange={e => setName(e.target.value)} // DOM event → React state
+    />
+  )
+}
+```
+
+The data flows in a loop:
+
+<MermaidDiagram chart={`flowchart LR
+    S[React State] -->|value prop| I[Input Element]
+    I -->|onChange event| H[Event Handler]
+    H -->|setState| S`} />
+
+This is called **one-way data binding**. The input can only display what is in state. When the user types, `onChange` fires, which calls `setState`, which re-renders with the new value. Without the `onChange` handler the input would be read-only (React would block keystrokes to maintain the state-value contract).
+
+## Controlled vs Uncontrolled
+
+<ComparisonTable
+  columns={['Aspect', 'Controlled', 'Uncontrolled']}
+  rows={[
+    ['Value lives in', 'React state', 'DOM node'],
+    ['Read value with', 'State variable', 'ref.current.value'],
+    ['Validation timing', 'Every keystroke, blur, or submit', 'Usually only on submit'],
+    ['Instant feedback', 'Yes — derive UI from state', 'Requires manual DOM read'],
+    ['Reset form', 'setState("") for each field', 'ref.current.value = "" or form.reset()'],
+    ['File inputs', 'Not applicable (always uncontrolled)', 'Use ref'],
+    ['Performance', 'Re-renders on every keystroke', 'No re-renders while typing'],
+  ]}
+/>
+
+## Text Input
+
+```tsx
+function TextInput() {
+  const [value, setValue] = useState('')
+
+  return (
+    <div>
+      <label htmlFor="username">Username</label>
+      <input
+        id="username"
+        type="text"
+        value={value}
+        onChange={e => setValue(e.target.value)}
+        placeholder="Enter your username"
+      />
+      <p>Characters: {value.length} / 20</p>
+    </div>
+  )
+}
+```
+
+<Callout type="info">
+Always pair `<label>` with `htmlFor` (matching the input's `id`). This is required for accessibility — screen readers announce the label when the input receives focus, and clicking the label focuses the input.
+</Callout>
+
+## Textarea
+
+`<textarea>` in React is self-closing and accepts a `value` prop, unlike the HTML version which puts its content between tags:
+
+```tsx
+function BiographyInput() {
+  const [bio, setBio] = useState('')
+  const MAX = 200
+
+  return (
+    <div>
+      <label htmlFor="bio">Biography</label>
+      <textarea
+        id="bio"
+        value={bio}
+        onChange={e => setBio(e.target.value.slice(0, MAX))} // enforce max length
+        rows={4}
+        placeholder="Tell us about yourself…"
+      />
+      <p style={{ color: bio.length >= MAX ? 'red' : 'inherit' }}>
+        {bio.length} / {MAX}
+      </p>
+    </div>
+  )
+}
+```
+
+## Select Dropdown
+
+Set the selected option by placing the `value` prop on `<select>`, not on `<option>`:
+
+```tsx
+const COUNTRIES = ['United States', 'Canada', 'United Kingdom', 'Australia', 'Germany']
+
+function CountrySelect() {
+  const [country, setCountry] = useState('')
+
+  return (
+    <div>
+      <label htmlFor="country">Country</label>
+      <select
+        id="country"
+        value={country}
+        onChange={e => setCountry(e.target.value)}
+      >
+        <option value="">-- Select a country --</option>
+        {COUNTRIES.map(c => (
+          <option key={c} value={c}>{c}</option>
+        ))}
+      </select>
+    </div>
+  )
+}
+```
+
+For multi-select, use an array in state:
+
+```tsx
+function MultiSelect() {
+  const [selected, setSelected] = useState<string[]>([])
+
+  const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const values = Array.from(e.target.selectedOptions, opt => opt.value)
+    setSelected(values)
+  }
+
+  return (
+    <select multiple value={selected} onChange={handleChange}>
+      <option value="react">React</option>
+      <option value="vue">Vue</option>
+      <option value="angular">Angular</option>
+    </select>
+  )
+}
+```
+
+## Checkbox
+
+Checkboxes use `checked` (not `value`) and toggle a boolean:
+
+```tsx
+function NewsletterCheckbox() {
+  const [subscribed, setSubscribed] = useState(false)
+
+  return (
+    <label>
+      <input
+        type="checkbox"
+        checked={subscribed}
+        onChange={e => setSubscribed(e.target.checked)}
+      />
+      {' '}Subscribe to newsletter
+    </label>
+  )
+}
+```
+
+For a group of checkboxes mapping to a set of values:
+
+```tsx
+const INTERESTS = ['React', 'TypeScript', 'Node.js', 'GraphQL', 'CSS']
+
+function InterestCheckboxes() {
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+
+  const toggle = (interest: string) => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      next.has(interest) ? next.delete(interest) : next.add(interest)
+      return next
+    })
+  }
+
+  return (
+    <fieldset>
+      <legend>Select your interests</legend>
+      {INTERESTS.map(interest => (
+        <label key={interest} style={{ display: 'block' }}>
+          <input
+            type="checkbox"
+            checked={selected.has(interest)}
+            onChange={() => toggle(interest)}
+          />
+          {' '}{interest}
+        </label>
+      ))}
+      <p>Selected: {[...selected].join(', ') || 'none'}</p>
+    </fieldset>
+  )
+}
+```
+
+## Radio Buttons
+
+Radio buttons share a `name` attribute in HTML, but in controlled React you manage the value in state:
+
+```tsx
+type Plan = 'free' | 'pro' | 'enterprise'
+
+const PLANS: { value: Plan; label: string; price: string }[] = [
+  { value: 'free',       label: 'Free',       price: '$0/mo' },
+  { value: 'pro',        label: 'Pro',        price: '$12/mo' },
+  { value: 'enterprise', label: 'Enterprise', price: 'Contact us' },
+]
+
+function PlanSelector() {
+  const [plan, setPlan] = useState<Plan>('free')
+
+  return (
+    <fieldset>
+      <legend>Choose a plan</legend>
+      {PLANS.map(({ value, label, price }) => (
+        <label key={value} style={{ display: 'block', marginBottom: 8 }}>
+          <input
+            type="radio"
+            name="plan"          // HTML name groups them for keyboard navigation
+            value={value}
+            checked={plan === value}
+            onChange={() => setPlan(value)}
+          />
+          {' '}{label} — {price}
+        </label>
+      ))}
+    </fieldset>
+  )
+}
+```
+
+## Handling Multiple Inputs with One Handler
+
+For forms with many fields, maintain a single state object and use the input's `name` attribute as the key:
+
+```tsx
+interface SignupForm {
+  firstName: string
+  lastName: string
+  email: string
+  password: string
+}
+
+function SignupForm() {
+  const [form, setForm] = useState<SignupForm>({
+    firstName: '',
+    lastName: '',
+    email: '',
+    password: '',
+  })
+
+  // Generic handler: reads name and value from the event target
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target
+    setForm(prev => ({ ...prev, [name]: value }))
+  }
+
+  return (
+    <form>
+      <input name="firstName" value={form.firstName} onChange={handleChange} placeholder="First name" />
+      <input name="lastName"  value={form.lastName}  onChange={handleChange} placeholder="Last name" />
+      <input name="email"     value={form.email}     onChange={handleChange} placeholder="Email" type="email" />
+      <input name="password"  value={form.password}  onChange={handleChange} placeholder="Password" type="password" />
+    </form>
+  )
+}
+```
+
+<Callout type="tip">
+The `[name]: value` computed property syntax (`[e.target.name]`) is the key to the single-handler pattern. Because each input's `name` prop matches the corresponding key in the state object, one handler updates any field.
+</Callout>
+
+## Controlled Form with Inline Validation
+
+Validate on each change to give users instant feedback:
+
+```tsx
+interface RegistrationForm {
+  username: string
+  email: string
+  password: string
+}
+
+interface FormErrors {
+  username?: string
+  email?: string
+  password?: string
+}
+
+function validate(form: RegistrationForm): FormErrors {
+  const errors: FormErrors = {}
+
+  if (form.username.length < 3)
+    errors.username = 'Username must be at least 3 characters.'
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
+    errors.email = 'Please enter a valid email address.'
+  if (form.password.length < 8)
+    errors.password = 'Password must be at least 8 characters.'
+
+  return errors
+}
+
+function RegistrationForm() {
+  const [form, setForm] = useState<RegistrationForm>({
+    username: '',
+    email: '',
+    password: '',
+  })
+  const [touched, setTouched] = useState<Partial<Record<keyof RegistrationForm, boolean>>>({})
+
+  const errors = validate(form)
+  const isValid = Object.keys(errors).length === 0
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target
+    setForm(prev => ({ ...prev, [name]: value }))
+  }
+
+  const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    setTouched(prev => ({ ...prev, [e.target.name]: true }))
+  }
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    // Mark all fields as touched to show all errors
+    setTouched({ username: true, email: true, password: true })
+    if (isValid) {
+      console.log('Submit:', form)
+    }
+  }
+
+  const fieldError = (field: keyof RegistrationForm) =>
+    touched[field] ? errors[field] : undefined
+
+  return (
+    <form onSubmit={handleSubmit} noValidate>
+      <div>
+        <label htmlFor="username">Username</label>
+        <input
+          id="username"
+          name="username"
+          value={form.username}
+          onChange={handleChange}
+          onBlur={handleBlur}
+          aria-invalid={!!fieldError('username')}
+          aria-describedby={fieldError('username') ? 'username-error' : undefined}
+        />
+        {fieldError('username') && (
+          <span id="username-error" role="alert">{fieldError('username')}</span>
+        )}
+      </div>
+
+      <div>
+        <label htmlFor="email">Email</label>
+        <input
+          id="email"
+          name="email"
+          type="email"
+          value={form.email}
+          onChange={handleChange}
+          onBlur={handleBlur}
+          aria-invalid={!!fieldError('email')}
+          aria-describedby={fieldError('email') ? 'email-error' : undefined}
+        />
+        {fieldError('email') && (
+          <span id="email-error" role="alert">{fieldError('email')}</span>
+        )}
+      </div>
+
+      <div>
+        <label htmlFor="password">Password</label>
+        <input
+          id="password"
+          name="password"
+          type="password"
+          value={form.password}
+          onChange={handleChange}
+          onBlur={handleBlur}
+          aria-invalid={!!fieldError('password')}
+          aria-describedby={fieldError('password') ? 'password-error' : undefined}
+        />
+        {fieldError('password') && (
+          <span id="password-error" role="alert">{fieldError('password')}</span>
+        )}
+      </div>
+
+      <button type="submit">Create Account</button>
+    </form>
+  )
+}
+```
+
+## Reset Form
+
+Because state is the source of truth, resetting is trivial:
+
+```tsx
+const INITIAL_FORM: SignupForm = { firstName: '', lastName: '', email: '', password: '' }
+
+function ResettableForm() {
+  const [form, setForm] = useState(INITIAL_FORM)
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target
+    setForm(prev => ({ ...prev, [name]: value }))
+  }
+
+  const resetForm = () => setForm(INITIAL_FORM)
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    console.log('Submitting:', form)
+    resetForm()
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      {/* ...inputs... */}
+      <button type="submit">Submit</button>
+      <button type="button" onClick={resetForm}>Reset</button>
+    </form>
+  )
+}
+```
+
+<Callout type="info">
+The `type="button"` attribute on the Reset button is critical. Without it, a button inside a `<form>` defaults to `type="submit"`, which would trigger form submission when clicked. Always be explicit about button types inside forms.
+</Callout>
+
+## Live Example: Complete Controlled Form
+
+<LiveEditor code={`import { useState } from 'react'
+
+const INITIAL = { name: '', email: '', role: '', bio: '', newsletter: false }
+
+function validate(form) {
+  const errors = {}
+  if (!form.name.trim())       errors.name = 'Name is required.'
+  if (!form.email.includes('@')) errors.email = 'Enter a valid email.'
+  if (!form.role)               errors.role = 'Please select a role.'
+  return errors
+}
+
+export default function App() {
+  const [form, setForm]     = useState(INITIAL)
+  const [touched, setTouched] = useState({})
+  const [submitted, setSubmitted] = useState(false)
+
+  const errors = validate(form)
+  const isValid = Object.keys(errors).length === 0
+
+  const handleChange = e => {
+    const { name, value, type, checked } = e.target
+    setForm(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }))
+  }
+
+  const handleBlur = e => {
+    setTouched(prev => ({ ...prev, [e.target.name]: true }))
+  }
+
+  const handleSubmit = e => {
+    e.preventDefault()
+    setTouched({ name: true, email: true, role: true })
+    if (isValid) {
+      setSubmitted(true)
+    }
+  }
+
+  const handleReset = () => {
+    setForm(INITIAL)
+    setTouched({})
+    setSubmitted(false)
+  }
+
+  const fieldError = field => touched[field] ? errors[field] : undefined
+
+  if (submitted) {
+    return (
+      <div style={{ fontFamily: 'sans-serif', padding: 24 }}>
+        <h2 style={{ color: '#16a34a' }}>Registration Complete!</h2>
+        <p><strong>Name:</strong> {form.name}</p>
+        <p><strong>Email:</strong> {form.email}</p>
+        <p><strong>Role:</strong> {form.role}</p>
+        <p><strong>Newsletter:</strong> {form.newsletter ? 'Yes' : 'No'}</p>
+        <button onClick={handleReset}
+          style={{ marginTop: 12, padding: '8px 16px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>
+          Register Another
+        </button>
+      </div>
+    )
+  }
+
+  const inputStyle = hasError => ({
+    display: 'block', width: '100%', padding: '8px 10px', marginTop: 4,
+    borderRadius: 4, border: \`1px solid \${hasError ? '#dc2626' : '#d1d5db'}\`,
+    boxSizing: 'border-box',
+  })
+  const errorStyle = { color: '#dc2626', fontSize: 13, marginTop: 4 }
+  const fieldStyle = { marginBottom: 16 }
+
+  return (
+    <form onSubmit={handleSubmit} noValidate style={{ fontFamily: 'sans-serif', padding: 24, maxWidth: 420 }}>
+      <h2>Create Account</h2>
+
+      <div style={fieldStyle}>
+        <label><strong>Full Name</strong>
+          <input name="name" value={form.name} onChange={handleChange} onBlur={handleBlur}
+            style={inputStyle(fieldError('name'))} placeholder="Jane Smith" />
+        </label>
+        {fieldError('name') && <p style={errorStyle}>{fieldError('name')}</p>}
+      </div>
+
+      <div style={fieldStyle}>
+        <label><strong>Email</strong>
+          <input name="email" type="email" value={form.email} onChange={handleChange} onBlur={handleBlur}
+            style={inputStyle(fieldError('email'))} placeholder="jane@example.com" />
+        </label>
+        {fieldError('email') && <p style={errorStyle}>{fieldError('email')}</p>}
+      </div>
+
+      <div style={fieldStyle}>
+        <label><strong>Role</strong>
+          <select name="role" value={form.role} onChange={handleChange} onBlur={handleBlur}
+            style={{ ...inputStyle(fieldError('role')), background: '#fff' }}>
+            <option value="">-- Select role --</option>
+            <option value="developer">Developer</option>
+            <option value="designer">Designer</option>
+            <option value="manager">Manager</option>
+          </select>
+        </label>
+        {fieldError('role') && <p style={errorStyle}>{fieldError('role')}</p>}
+      </div>
+
+      <div style={fieldStyle}>
+        <label><strong>Bio (optional)</strong>
+          <textarea name="bio" value={form.bio} onChange={handleChange}
+            rows={3} style={inputStyle(false)} placeholder="Tell us about yourself…" />
+        </label>
+        <p style={{ fontSize: 12, color: '#6b7280' }}>{form.bio.length} characters</p>
+      </div>
+
+      <div style={{ marginBottom: 20 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input type="checkbox" name="newsletter" checked={form.newsletter} onChange={handleChange} />
+          Subscribe to newsletter
+        </label>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button type="submit"
+          style={{ padding: '8px 20px', background: isValid ? '#3b82f6' : '#93c5fd', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>
+          Create Account
+        </button>
+        <button type="button" onClick={handleReset}
+          style={{ padding: '8px 20px', background: '#e5e7eb', border: 'none', borderRadius: 4, cursor: 'pointer' }}>
+          Reset
+        </button>
+      </div>
+    </form>
+  )
+}`} />
+
+<InterviewQA questions={[
+  {
+    question: "What makes an input 'controlled' in React?",
+    answer: "An input is controlled when its value is driven by React state via the value prop (or checked for checkboxes/radios), and every change goes through an onChange handler that calls setState. React owns the value — the DOM reflects the state, not the other way around. If you set value without an onChange handler, React makes the input read-only.",
+    level: "beginner"
+  },
+  {
+    question: "What happens if you set value on an input but provide no onChange handler?",
+    answer: "React renders the input with the given value and then blocks all user input. The input becomes read-only because React enforces that the DOM value always matches the value prop. React also logs a console warning about providing a value without an onChange handler. The fix is either to add an onChange handler to make it properly controlled, or switch to defaultValue to make it uncontrolled.",
+    level: "beginner"
+  },
+  {
+    question: "How would you handle 10 form fields without writing 10 separate state variables and handlers?",
+    answer: "Store all form fields in a single state object and use a single generic onChange handler that reads e.target.name and e.target.value. Using the computed property syntax [e.target.name]: e.target.value, one handler can update any field in the form object. This scales to any number of fields and makes the submit handler simple — just pass the whole state object.",
+    level: "intermediate"
+  },
+  {
+    question: "When should you show validation errors — on every keystroke, on blur, or only on submit?",
+    answer: "Best practice is a hybrid: validate on every change (to keep the error state current), but only display errors for fields the user has already interacted with (tracked by a 'touched' set populated on blur) plus all fields when the user attempts to submit. Showing errors before the user has even typed is jarring. Waiting until submit gives no feedback while typing. The touched-on-blur approach shows errors at the right moment — after the user has left a field they filled incorrectly.",
+    level: "intermediate"
+  }
+]} />

@@ -1,0 +1,276 @@
+---
+title: TypeScript with React
+description: Add type safety to your React applications — props, hooks, events, and component patterns.
+category: TypeScript
+order: 1
+slug: typescript/ts-basics
+difficulty: intermediate
+estimatedTime: 20
+tags: [typescript, types, interfaces, generics, react, props, hooks]
+lastUpdated: 2024-01-15
+---
+
+# TypeScript with React
+
+TypeScript adds static type checking to your React code, catching bugs at compile time that would otherwise surface in production. The React ecosystem has excellent TypeScript support out of the box.
+
+<Callout type="tip" title="TypeScript in React project">
+With Vite: `npm create vite@latest my-app -- --template react-ts`. All types for React come from `@types/react`.
+</Callout>
+
+## Typing Props
+
+```tsx
+// ✅ Interface (preferred — extendable, shows in IDE)
+interface ButtonProps {
+  label:     string
+  variant?:  'primary' | 'secondary' | 'danger'  // string union
+  size?:     'sm' | 'md' | 'lg'
+  disabled?: boolean
+  icon?:     React.ReactNode                       // any renderable JSX
+  onClick?:  (event: React.MouseEvent<HTMLButtonElement>) => void
+  children?: React.ReactNode
+}
+
+function Button({ label, variant = 'primary', size = 'md', disabled, onClick }: ButtonProps) {
+  return (
+    <button
+      className={`btn btn-${variant} btn-${size}`}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {label}
+    </button>
+  )
+}
+```
+
+## Typing useState
+
+```tsx
+// TypeScript infers the type from the initial value
+const [count, setCount] = useState(0)          // number
+const [name, setName]   = useState('')          // string
+const [open, setOpen]   = useState(false)       // boolean
+
+// Provide explicit type when initial value is null/undefined
+const [user, setUser]   = useState<User | null>(null)
+const [items, setItems] = useState<Product[]>([])
+const [error, setError] = useState<string | null>(null)
+
+interface User {
+  id:    string
+  name:  string
+  email: string
+  role:  'admin' | 'user' | 'guest'
+}
+```
+
+## Typing useRef
+
+```tsx
+// DOM elements: type the element, initialize with null
+const inputRef = useRef<HTMLInputElement>(null)
+const divRef   = useRef<HTMLDivElement>(null)
+
+// Access requires null check
+const handleFocus = () => inputRef.current?.focus()
+
+// Mutable values: no null needed
+const timerRef  = useRef<NodeJS.Timeout | undefined>(undefined)
+const countRef  = useRef<number>(0)
+
+// Assign freely — no null check needed
+timerRef.current = setTimeout(() => {}, 1000)
+countRef.current++
+```
+
+## Typing Event Handlers
+
+```tsx
+// Form events
+const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  setValue(e.target.value)
+}
+
+const handleSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
+  setCategory(e.target.value)
+}
+
+// Keyboard events
+const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  if (e.key === 'Enter') submit()
+}
+
+// Mouse events
+const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+  e.preventDefault()
+  onClick?.(e)
+}
+
+// Form submit
+const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  e.preventDefault()
+  // process form data
+}
+
+// Drag events
+const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+  const file = e.dataTransfer.files[0]
+}
+```
+
+## Typing useReducer
+
+```tsx
+// Define state and action as discriminated unions
+interface User { id: string; name: string }
+
+type State = {
+  users:   User[]
+  loading: boolean
+  error:   string | null
+}
+
+type Action =
+  | { type: 'FETCH_START' }
+  | { type: 'FETCH_SUCCESS'; payload: User[] }
+  | { type: 'FETCH_ERROR';   payload: string }
+  | { type: 'DELETE_USER';   payload: string }
+
+function reducer(state: State, action: Action): State {
+  switch (action.type) {
+    case 'FETCH_START':
+      return { ...state, loading: true, error: null }
+    case 'FETCH_SUCCESS':
+      return { ...state, loading: false, users: action.payload }
+    case 'FETCH_ERROR':
+      return { ...state, loading: false, error: action.payload }
+    case 'DELETE_USER':
+      return { ...state, users: state.users.filter(u => u.id !== action.payload) }
+  }
+}
+
+// TypeScript knows action.payload is User[] in FETCH_SUCCESS
+// and string in FETCH_ERROR — discriminated union narrows types!
+```
+
+## Generic Components
+
+```tsx
+// A fully typed, reusable Select component
+interface SelectProps<T extends string> {
+  value:    T
+  options:  { label: string; value: T }[]
+  onChange: (value: T) => void
+  label?:   string
+}
+
+function Select<T extends string>({ value, options, onChange, label }: SelectProps<T>) {
+  return (
+    <div>
+      {label && <label>{label}</label>}
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value as T)}
+      >
+        {options.map(opt => (
+          <option key={opt.value} value={opt.value}>{opt.label}</option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
+// Usage — TypeScript infers T from options values
+type Role = 'admin' | 'user' | 'guest'
+
+<Select<Role>
+  value="admin"
+  options={[
+    { label: 'Admin', value: 'admin' },
+    { label: 'User',  value: 'user' },
+    { label: 'Guest', value: 'guest' },
+  ]}
+  onChange={role => setRole(role)}  // TypeScript knows role: Role
+/>
+```
+
+## Typing Context
+
+```tsx
+interface ThemeContextValue {
+  theme:       'light' | 'dark'
+  toggleTheme: () => void
+}
+
+const ThemeContext = createContext<ThemeContextValue | undefined>(undefined)
+
+// Type-safe useContext hook with null guard
+function useTheme(): ThemeContextValue {
+  const ctx = useContext(ThemeContext)
+  if (!ctx) throw new Error('useTheme must be used within ThemeProvider')
+  return ctx
+}
+
+function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const [theme, setTheme] = useState<'light' | 'dark'>('light')
+  const toggleTheme = () => setTheme(t => t === 'light' ? 'dark' : 'light')
+
+  return (
+    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+      {children}
+    </ThemeContext.Provider>
+  )
+}
+```
+
+## Utility Types in React
+
+```tsx
+// Pick specific props from a component
+type PrimaryButtonProps = Pick<ButtonProps, 'label' | 'onClick' | 'disabled'>
+
+// Make all optional
+type OptionalConfig = Partial<AppConfig>
+
+// Require all
+type RequiredUser = Required<User>
+
+// Omit id from form (id comes from server)
+type CreateUserInput = Omit<User, 'id' | 'createdAt'>
+
+// Extract element props + extend them
+type InputProps = React.ComponentPropsWithRef<'input'> & {
+  label: string
+  error?: string
+}
+```
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- Type props with interfaces, state with generics: `useState<User | null>(null)`
+- Use `React.ChangeEvent<HTMLInputElement>` etc. for event handler types
+- Discriminated unions in `useReducer` give you type-safe action payloads
+- Generic components with `<T extends string>` enable reusable, type-safe APIs
+- Utility types (`Omit`, `Pick`, `Partial`) help shape types for specific use cases
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "How do you type a React component's props with TypeScript?",
+    answer: "Define an interface (or type) for the props, then use it in the function signature via destructuring. Example: interface ButtonProps { label: string; onClick?: () => void } then function Button({ label, onClick }: ButtonProps). Avoid React.FC because it adds implicit children and causes issues with generic components. Use interface for shared/complex props (extendable) and inline types for simple local props. For children, explicitly add children?: React.ReactNode to the interface.",
+    level: "junior"
+  },
+  {
+    question: "How do discriminated unions work in useReducer and why are they valuable?",
+    answer: "A discriminated union is a union of types that share a common literal property (the discriminant). In useReducer, action type strings serve as discriminants: type Action = { type: 'ADD'; payload: Item } | { type: 'DELETE'; payload: number }. TypeScript narrows the type inside each switch case — in case 'ADD', TypeScript knows action.payload is Item. In case 'DELETE', it knows payload is number. This eliminates runtime type errors in reducers, provides autocomplete for payload shapes, and makes adding new action types self-documenting with compile-time enforcement.",
+    level: "mid"
+  },
+  {
+    question: "Design a type-safe API layer for a React app using TypeScript generics.",
+    answer: "Create a generic apiClient function: async function api<TResponse, TBody = void>(method: string, url: string, body?: TBody): Promise<TResponse>. Define endpoint-specific functions: const getUser = (id: string) => api<User>('GET', `/users/${id}`), const createUser = (data: CreateUserInput) => api<User, CreateUserInput>('POST', '/users', data). Create a useApiQuery<T> hook that wraps React Query with typed responses. Define all API responses in a shared types file. Use Zod for runtime validation — z.parse(UserSchema, apiResponse) — to ensure the API response actually matches the type at runtime, not just at compile time.",
+    level: "enterprise"
+  }
+]} />

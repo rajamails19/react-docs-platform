@@ -1,0 +1,349 @@
+---
+title: Redux Toolkit
+description: Modern, opinionated Redux with Redux Toolkit — the only way to write Redux in 2024.
+category: Redux
+order: 1
+slug: redux/redux-basics
+difficulty: advanced
+estimatedTime: 20
+tags: [redux, redux toolkit, RTK, slice, store, useSelector, useDispatch, immer]
+lastUpdated: 2024-01-15
+---
+
+# Redux Toolkit
+
+**Redux Toolkit (RTK)** is the official, opinionated way to write Redux. It eliminates boilerplate, includes Immer for immutable updates, and ships with powerful utilities for async logic and data fetching.
+
+<Callout type="warning" title="Redux is not always the answer">
+Redux shines for global state shared across many components, complex state transitions, and when you need DevTools time-travel debugging. For local state or simple shared state, use `useState` + Context API first.
+</Callout>
+
+## Installation
+
+```bash
+npm install @reduxjs/toolkit react-redux
+```
+
+## Core Concepts
+
+<MermaidDiagram chart={`
+flowchart LR
+  A[Component] -->|dispatch action| B[Store]
+  B --> C[Reducer / Slice]
+  C -->|new state| B
+  B -->|useSelector| A
+  D[RTK Query] -->|auto actions| B
+`} caption="Redux data flow with RTK" />
+
+## createSlice
+
+A slice bundles the reducer, initial state, and action creators together:
+
+```tsx
+// src/features/auth/authSlice.ts
+import { createSlice, createAsyncThunk, type PayloadAction } from '@reduxjs/toolkit'
+
+interface User { id: string; name: string; email: string; role: string }
+interface AuthState {
+  user:    User | null
+  token:   string | null
+  loading: boolean
+  error:   string | null
+}
+
+const initialState: AuthState = {
+  user: null, token: null, loading: false, error: null,
+}
+
+// Async thunk for API calls
+export const loginUser = createAsyncThunk(
+  'auth/loginUser',
+  async ({ email, password }: { email: string; password: string }, { rejectWithValue }) => {
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      return await res.json() as { user: User; token: string }
+    } catch (err) {
+      return rejectWithValue((err as Error).message)
+    }
+  }
+)
+
+const authSlice = createSlice({
+  name: 'auth',
+  initialState,
+  reducers: {
+    // Immer lets you "mutate" — it creates a new state under the hood
+    setToken(state, action: PayloadAction<string>) {
+      state.token = action.payload
+    },
+    logout(state) {
+      state.user  = null
+      state.token = null
+    },
+    updateUser(state, action: PayloadAction<Partial<User>>) {
+      if (state.user) Object.assign(state.user, action.payload)
+    },
+  },
+  extraReducers: builder => {
+    builder
+      .addCase(loginUser.pending,   state => { state.loading = true;  state.error = null })
+      .addCase(loginUser.fulfilled, (state, action) => {
+        state.loading = false
+        state.user    = action.payload.user
+        state.token   = action.payload.token
+      })
+      .addCase(loginUser.rejected, (state, action) => {
+        state.loading = false
+        state.error   = action.payload as string
+      })
+  },
+})
+
+export const { setToken, logout, updateUser } = authSlice.actions
+export default authSlice.reducer
+```
+
+## Configure the Store
+
+```tsx
+// src/store/index.ts
+import { configureStore } from '@reduxjs/toolkit'
+import authReducer    from '@/features/auth/authSlice'
+import productsReducer from '@/features/products/productsSlice'
+import cartReducer    from '@/features/cart/cartSlice'
+
+export const store = configureStore({
+  reducer: {
+    auth:     authReducer,
+    products: productsReducer,
+    cart:     cartReducer,
+  },
+  middleware: getDefault => getDefault().concat(
+    // Add custom middleware here (e.g., analytics logger)
+  ),
+  devTools: process.env.NODE_ENV !== 'production',
+})
+
+// TypeScript helpers — add once, use everywhere
+export type RootState    = ReturnType<typeof store.getState>
+export type AppDispatch  = typeof store.dispatch
+```
+
+## Typed Hooks
+
+Create typed versions of `useSelector` and `useDispatch`:
+
+```tsx
+// src/hooks/redux.ts
+import { useDispatch, useSelector, type TypedUseSelectorHook } from 'react-redux'
+import type { RootState, AppDispatch } from '@/store'
+
+// Use these instead of the plain useDispatch / useSelector
+export const useAppDispatch: () => AppDispatch = useDispatch
+export const useAppSelector: TypedUseSelectorHook<RootState> = useSelector
+```
+
+## Connect to React
+
+```tsx
+// src/main.tsx
+import { Provider } from 'react-redux'
+import { store } from '@/store'
+
+createRoot(document.getElementById('root')!).render(
+  <Provider store={store}>
+    <App />
+  </Provider>
+)
+```
+
+## Using Redux in Components
+
+```tsx
+// src/features/auth/LoginForm.tsx
+import { useState } from 'react'
+import { useAppDispatch, useAppSelector } from '@/hooks/redux'
+import { loginUser, logout } from './authSlice'
+
+export function LoginForm() {
+  const dispatch = useAppDispatch()
+  const { user, loading, error } = useAppSelector(state => state.auth)
+
+  const [email, setEmail]       = useState('')
+  const [password, setPassword] = useState('')
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    await dispatch(loginUser({ email, password }))
+  }
+
+  if (user) {
+    return (
+      <div>
+        <p>Welcome, {user.name}!</p>
+        <button onClick={() => dispatch(logout())}>Logout</button>
+      </div>
+    )
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <input
+        type="email"
+        value={email}
+        onChange={e => setEmail(e.target.value)}
+        placeholder="Email"
+      />
+      <input
+        type="password"
+        value={password}
+        onChange={e => setPassword(e.target.value)}
+        placeholder="Password"
+      />
+      {error && <p className="error">{error}</p>}
+      <button type="submit" disabled={loading}>
+        {loading ? 'Logging in...' : 'Login'}
+      </button>
+    </form>
+  )
+}
+```
+
+## Selectors
+
+Memoized selectors improve performance and decouple components from state shape:
+
+```tsx
+// src/features/products/selectors.ts
+import { createSelector } from '@reduxjs/toolkit'
+import type { RootState } from '@/store'
+
+const selectProducts    = (state: RootState) => state.products.items
+const selectCategory    = (state: RootState) => state.products.selectedCategory
+const selectSearchQuery = (state: RootState) => state.products.searchQuery
+
+// Memoized — only recomputes when products, category, or query change
+export const selectFilteredProducts = createSelector(
+  [selectProducts, selectCategory, selectSearchQuery],
+  (products, category, query) =>
+    products
+      .filter(p => !category || p.category === category)
+      .filter(p => p.name.toLowerCase().includes(query.toLowerCase()))
+)
+
+// Usage in component
+const products = useAppSelector(selectFilteredProducts)  // memoized
+```
+
+## Interactive Example — Counter Slice
+
+A complete Redux Toolkit store with a counter slice. Dispatch actions and watch the state update:
+
+<LiveEditor code={`import { configureStore, createSlice, PayloadAction } from '@reduxjs/toolkit'
+import { Provider, useSelector, useDispatch } from 'react-redux'
+
+// ─── Slice ────────────────────────────────────────────────
+interface CounterState { value: number; history: string[] }
+
+const counterSlice = createSlice({
+  name: 'counter',
+  initialState: { value: 0, history: [] } as CounterState,
+  reducers: {
+    increment:      state => { state.value++; state.history.push(\`+1 → \${state.value}\`) },
+    decrement:      state => { state.value--; state.history.push(\`-1 → \${state.value}\`) },
+    incrementByAmount: (state, action: PayloadAction<number>) => {
+      state.value += action.payload
+      state.history.push(\`+\${action.payload} → \${state.value}\`)
+    },
+    reset: state => { state.value = 0; state.history.push('reset → 0') },
+  },
+})
+
+const { increment, decrement, incrementByAmount, reset } = counterSlice.actions
+
+// ─── Store ────────────────────────────────────────────────
+const store = configureStore({ reducer: { counter: counterSlice.reducer } })
+type RootState   = ReturnType<typeof store.getState>
+type AppDispatch = typeof store.dispatch
+
+// ─── Component ────────────────────────────────────────────
+function Counter() {
+  const value    = useSelector((s: RootState) => s.counter.value)
+  const history  = useSelector((s: RootState) => s.counter.history)
+  const dispatch = useDispatch<AppDispatch>()
+
+  const btn = (label: string, action: () => void, color = '#6366f1') => (
+    <button onClick={action} style={{ padding: '8px 16px', background: color, color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 14 }}>
+      {label}
+    </button>
+  )
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: 24, maxWidth: 400 }}>
+      <div style={{ fontSize: 64, fontWeight: 800, textAlign: 'center', color: value >= 0 ? '#6366f1' : '#ef4444', margin: '0 0 20px' }}>
+        {value}
+      </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center', marginBottom: 16 }}>
+        {btn('−1', () => dispatch(decrement()), '#ef4444')}
+        {btn('+1', () => dispatch(increment()), '#22c55e')}
+        {btn('+5', () => dispatch(incrementByAmount(5)), '#f59e0b')}
+        {btn('+10', () => dispatch(incrementByAmount(10)), '#8b5cf6')}
+        {btn('Reset', () => dispatch(reset()), '#6b7280')}
+      </div>
+
+      <div style={{ background: '#111827', borderRadius: 10, padding: 12, maxHeight: 120, overflowY: 'auto' }}>
+        <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 6, fontFamily: 'monospace' }}>Action history</div>
+        {history.length === 0 && <div style={{ fontSize: 12, color: '#4b5563', fontFamily: 'monospace' }}>No actions dispatched yet</div>}
+        {[...history].reverse().map((h, i) => (
+          <div key={i} style={{ fontSize: 12, color: '#a5f3fc', fontFamily: 'monospace' }}>{h}</div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+export default function App() {
+  return (
+    <Provider store={store}>
+      <Counter />
+    </Provider>
+  )
+}`} dependencies={{ "@reduxjs/toolkit": "^2.0.0", "react-redux": "^9.0.0" }} />
+
+<Challenge title="Add a step size selector">
+Add a `stepSize` number to the slice state (default: 1). Add a `setStep` reducer that updates it. Render `<select>` with options `[1, 5, 10, 25]` and make the `+` and `−` buttons use the current step size instead of hardcoded values.
+</Challenge>
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- Redux Toolkit eliminates boilerplate with `createSlice`, `createAsyncThunk`, and Immer
+- `createSlice` bundles reducer, initial state, and action creators in one place
+- `createAsyncThunk` handles loading/error/success states for async operations
+- Use `createSelector` for memoized, composable selectors
+- Always create typed `useAppDispatch` and `useAppSelector` hooks
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "What is Redux Toolkit and why was it created?",
+    answer: "Redux Toolkit is the official, opinionated toolset for Redux that eliminates the common criticisms of Redux: too much boilerplate, complex setup, verbose immutable update patterns. RTK includes: createSlice (combines reducer + action creators), createAsyncThunk (async action creator with pending/fulfilled/rejected states), Immer (lets you write 'mutating' code that's actually immutable), createSelector (memoized selectors), and configureStore (sets up the store with DevTools and common middleware). It's now the recommended way to write all Redux code.",
+    level: "junior"
+  },
+  {
+    question: "How does Immer enable 'mutable' updates in Redux Toolkit?",
+    answer: "Immer uses JavaScript Proxies to intercept mutations on a draft state. Inside createSlice reducers, state is a Proxy. Immer records your mutations (state.user.name = 'Alice'), then applies them to produce a new immutable state object. If you return nothing from the reducer, Immer returns the new state based on mutations. If you return a value explicitly, Immer uses that instead. This means you can write intuitive mutation code without violating Redux's immutability requirement. The performance is comparable to manual spread operators for typical state sizes.",
+    level: "mid"
+  },
+  {
+    question: "How do you structure a large Redux store in an enterprise application?",
+    answer: "Feature-based structure (not type-based): each feature folder (auth/, products/, cart/) contains its slice, selectors, thunks, and types. Follow the 'ducks' pattern. Key architectural decisions: (1) Normalize state for entities (use createEntityAdapter — gives you CRUD operations and normalized dict + ids array for O(1) lookups). (2) Use createSelector for all derived data to memoize and decouple component code from state shape. (3) RTK Query for server state — replaces manual thunks + loading state management for most API calls. (4) Separate 'server state' (RTK Query) from 'UI state' (slices). (5) Use Redux DevTools with action filters and state diffing for debugging in development.",
+    level: "enterprise"
+  }
+]} />

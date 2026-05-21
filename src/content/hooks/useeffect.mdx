@@ -1,0 +1,434 @@
+---
+title: useEffect Hook
+description: Handle side effects — API calls, subscriptions, timers, and DOM manipulation — with useEffect.
+category: Hooks
+order: 2
+slug: hooks/useeffect
+difficulty: beginner
+estimatedTime: 18
+tags: [useeffect, side effects, api calls, cleanup, dependency array, lifecycle]
+lastUpdated: 2024-01-15
+---
+
+# useEffect
+
+`useEffect` lets you synchronize a component with **external systems** — APIs, browser APIs, third-party libraries, timers, subscriptions. It runs *after* the browser has painted the screen.
+
+```tsx
+useEffect(() => {
+  // side effect code
+  return () => {
+    // cleanup (optional)
+  }
+}, [dependencies])
+```
+
+## What Is a Side Effect?
+
+A side effect is anything that **reaches outside the component's render scope**:
+- Fetching data from an API
+- Setting up a timer or interval
+- Subscribing to browser events (resize, scroll, keydown)
+- Reading/writing to localStorage
+- Integrating with third-party libraries (maps, analytics, charts)
+- Manually updating the DOM
+
+<Callout type="info" title="Effects run after render">
+React paints the UI first, then runs your effect. This ensures effects never block the visual update. For layout measurements that need to happen before paint, use `useLayoutEffect`.
+</Callout>
+
+## The Dependency Array
+
+The second argument controls when the effect runs:
+
+```tsx
+// 1. No dependency array — runs after EVERY render
+useEffect(() => {
+  document.title = `Count: ${count}`
+})
+
+// 2. Empty array [] — runs ONCE after initial render
+useEffect(() => {
+  fetchUserData()
+}, [])
+
+// 3. With dependencies — runs when any dependency changes
+useEffect(() => {
+  fetchUser(userId)
+}, [userId])  // re-runs only when userId changes
+```
+
+<MermaidDiagram chart={`
+flowchart TD
+  A[Component renders] --> B[React updates DOM]
+  B --> C[Browser paints]
+  C --> D{Dependency check}
+  D -->|First render| E[Run effect]
+  D -->|Deps changed| E
+  D -->|Deps same| F[Skip effect]
+  E --> G{Has cleanup?}
+  G -->|Yes| H[Run cleanup on next render / unmount]
+  G -->|No| I[Done]
+`} caption="useEffect execution flow" />
+
+## Cleanup Functions
+
+Always clean up effects that create subscriptions, timers, or listeners:
+
+```tsx
+useEffect(() => {
+  // Setup
+  const timer = setInterval(() => {
+    setSeconds(s => s + 1)
+  }, 1000)
+
+  // Cleanup — runs before next effect or unmount
+  return () => clearInterval(timer)
+}, [])
+```
+
+### Why cleanup matters
+
+Without cleanup:
+- **Memory leaks** — interval keeps firing even after component unmounts
+- **State updates on unmounted components** — causes React warnings and bugs
+- **Stale subscriptions** — event listeners piling up
+
+```tsx
+// ✅ Complete effect lifecycle example
+useEffect(() => {
+  const controller = new AbortController()
+
+  const fetchData = async () => {
+    try {
+      const res = await fetch(`/api/user/${userId}`, { signal: controller.signal })
+      const data = await res.json()
+      setUser(data)
+    } catch (err) {
+      if (err instanceof Error && err.name !== 'AbortError') {
+        setError(err.message)
+      }
+    }
+  }
+
+  fetchData()
+
+  return () => controller.abort()  // Cancel in-flight request on cleanup
+}, [userId])
+```
+
+## Common Patterns
+
+### Data fetching
+
+```tsx
+function UserProfile({ userId }: { userId: string }) {
+  const [user, setUser]     = useState<User | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError]   = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+
+    fetchUser(userId)
+      .then(data => {
+        if (!cancelled) {
+          setUser(data)
+          setLoading(false)
+        }
+      })
+      .catch(err => {
+        if (!cancelled) {
+          setError(err.message)
+          setLoading(false)
+        }
+      })
+
+    return () => { cancelled = true }
+  }, [userId])
+
+  if (loading) return <Spinner />
+  if (error)   return <Error message={error} />
+  return <UserCard user={user!} />
+}
+```
+
+<Callout type="tip" title="Consider React Query instead">
+For production apps, replace manual fetch effects with **React Query** (TanStack Query). It handles caching, deduplication, background refetch, loading/error states, and cancellation automatically.
+</Callout>
+
+### Event listeners
+
+```tsx
+function useWindowSize() {
+  const [size, setSize] = useState({ width: window.innerWidth, height: window.innerHeight })
+
+  useEffect(() => {
+    const handleResize = () => {
+      setSize({ width: window.innerWidth, height: window.innerHeight })
+    }
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])  // [] — register once, clean up on unmount
+
+  return size
+}
+```
+
+### Local storage sync
+
+```tsx
+function usePersist<T>(key: string, initial: T) {
+  const [value, setValue] = useState<T>(() => {
+    const stored = localStorage.getItem(key)
+    return stored ? JSON.parse(stored) : initial
+  })
+
+  useEffect(() => {
+    localStorage.setItem(key, JSON.stringify(value))
+  }, [key, value])
+
+  return [value, setValue] as const
+}
+```
+
+## Interactive Example
+
+<LiveEditor code={`import { useState, useEffect } from 'react'
+
+interface Post {
+  id: number
+  title: string
+  body: string
+}
+
+export default function PostViewer() {
+  const [postId, setPostId] = useState(1)
+  const [post, setPost]     = useState<Post | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    setLoading(true)
+    setPost(null)
+
+    const controller = new AbortController()
+
+    fetch(\`https://jsonplaceholder.typicode.com/posts/\${postId}\`, {
+      signal: controller.signal
+    })
+      .then(r => r.json())
+      .then(data => {
+        setPost(data)
+        setLoading(false)
+      })
+      .catch(err => {
+        if (err.name !== 'AbortError') setLoading(false)
+      })
+
+    return () => controller.abort()
+  }, [postId])
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', maxWidth: 500, margin: '20px auto', padding: 20 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+        {[1, 2, 3, 4, 5].map(id => (
+          <button
+            key={id}
+            onClick={() => setPostId(id)}
+            style={{
+              padding: '6px 12px', borderRadius: 6, cursor: 'pointer',
+              background: postId === id ? '#2563eb' : '#f3f4f6',
+              color: postId === id ? 'white' : '#111',
+              border: '1px solid ' + (postId === id ? '#2563eb' : '#ddd')
+            }}
+          >
+            Post {id}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div style={{ color: '#888', padding: 40, textAlign: 'center' }}>Loading post {postId}...</div>
+      ) : post ? (
+        <div>
+          <h2 style={{ marginTop: 0, textTransform: 'capitalize' }}>{post.title}</h2>
+          <p style={{ color: '#555', lineHeight: 1.6 }}>{post.body}</p>
+        </div>
+      ) : null}
+    </div>
+  )
+}`} />
+
+## Common Mistakes
+
+```tsx
+// ❌ Missing dependency
+useEffect(() => {
+  fetchUser(userId)  // uses userId but not listed
+}, [])               // stale userId after prop changes!
+
+// ✅ Include all dependencies
+useEffect(() => {
+  fetchUser(userId)
+}, [userId])
+
+// ❌ Async function directly in useEffect
+useEffect(async () => {  // useEffect can't return a Promise
+  const data = await fetch('/api')
+}, [])
+
+// ✅ Define async function inside
+useEffect(() => {
+  const run = async () => {
+    const data = await fetch('/api')
+  }
+  run()
+}, [])
+
+// ❌ Object/array in dependency array (new reference every render)
+useEffect(() => {
+  fetchWithOptions(options)
+}, [{ method: 'GET' }])  // new object every render → infinite loop!
+
+// ✅ Use primitive values or useMemo/useCallback
+const options = useMemo(() => ({ method: 'GET' }), [])
+useEffect(() => {
+  fetchWithOptions(options)
+}, [options])
+```
+
+## useEffect vs useLayoutEffect
+
+| | `useEffect` | `useLayoutEffect` |
+|---|---|---|
+| When it runs | After browser paint | Before browser paint (after DOM mutations) |
+| Blocks paint? | No (async) | Yes (synchronous) |
+| Use case | Data fetching, subscriptions, logging | DOM measurement, tooltip positioning, animations |
+| SSR | Safe (no error) | Warns on server |
+
+## Interactive Examples
+
+### Dependency array visualizer
+
+Change the dependencies and watch exactly when the effect re-runs:
+
+<LiveEditor code={`import { useState, useEffect, useRef } from 'react'
+
+export default function EffectVisualizer() {
+  const [name, setName]       = useState('Alice')
+  const [age, setAge]         = useState(25)
+  const [tick, setTick]       = useState(0)
+  const [depMode, setDepMode] = useState<'always' | 'once' | 'name' | 'nameAge'>('name')
+  const effectLog             = useRef<string[]>([])
+  const [, forceUpdate]       = useState(0)
+
+  const log = (msg: string) => {
+    effectLog.current = [\`\${new Date().toLocaleTimeString()} \${msg}\`, ...effectLog.current].slice(0, 6)
+    forceUpdate(v => v + 1)
+  }
+
+  // Dep: [] — runs once
+  useEffect(() => {
+    if (depMode === 'once') log('▶ Effect ran (dep: [])')
+  }, depMode === 'once' ? [] : undefined)
+
+  // Dep: undefined (no array) — runs always
+  useEffect(() => {
+    if (depMode === 'always') log('▶ Effect ran (dep: none — EVERY render)')
+  })
+
+  // Dep: [name] — runs when name changes
+  useEffect(() => {
+    if (depMode === 'name') log(\`▶ Effect ran: name="\${name}"\`)
+  }, depMode === 'name' ? [name] : [])
+
+  // Dep: [name, age] — runs when name or age changes
+  useEffect(() => {
+    if (depMode === 'nameAge') log(\`▶ Effect ran: name="\${name}", age=\${age}\`)
+  }, depMode === 'nameAge' ? [name, age] : [])
+
+  const btn = (label: string, val: typeof depMode) => (
+    <button onClick={() => { setDepMode(val); effectLog.current = [] }} style={{ padding: '6px 12px', background: depMode === val ? '#6366f1' : '#f3f4f6', color: depMode === val ? 'white' : '#374151', border: '1px solid #e5e7eb', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+      {label}
+    </button>
+  )
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: 20, maxWidth: 440 }}>
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 6 }}>Dependency array:</div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {btn('Always (none)', 'always')}
+          {btn('Once ([])', 'once')}
+          {btn('[name]', 'name')}
+          {btn('[name, age]', 'nameAge')}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+        <input value={name} onChange={e => setName(e.target.value)} placeholder="name" style={{ flex: 1, padding: '7px 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 13 }} />
+        <input type="number" value={age} onChange={e => setAge(+e.target.value)} style={{ width: 60, padding: '7px 8px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 13 }} />
+        <button onClick={() => setTick(t => t + 1)} style={{ padding: '7px 12px', border: '1px solid #e5e7eb', borderRadius: 6, cursor: 'pointer', fontSize: 12, background: '#f9fafb' }}>
+          Re-render #{tick}
+        </button>
+      </div>
+
+      <div style={{ background: '#111827', borderRadius: 8, padding: 12, minHeight: 80 }}>
+        <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4, fontFamily: 'monospace' }}>Effect log</div>
+        {effectLog.current.length === 0
+          ? <div style={{ fontSize: 12, color: '#4b5563', fontFamily: 'monospace' }}>Change something…</div>
+          : effectLog.current.map((e, i) => <div key={i} style={{ fontSize: 12, color: '#a5f3fc', fontFamily: 'monospace' }}>{e}</div>)
+        }
+      </div>
+    </div>
+  )
+}`} />
+
+<Challenge title="Add a cleanup counter">
+Modify the effect that runs on `[name]` to log both when it starts AND when it cleans up:
+
+```tsx
+useEffect(() => {
+  log('▶ Effect started — name=' + name)
+  return () => {
+    log('◀ Cleanup ran — name=' + name)
+  }
+}, [name])
+```
+
+Type in the name field and observe: cleanup runs with the OLD value, then effect runs with the NEW value.
+</Challenge>
+
+## Summary
+
+<Callout type="success" title="What we learned">
+- `useEffect` synchronizes a component with external systems (APIs, timers, subscriptions)
+- The dependency array controls when it runs: always, once, or on specific changes
+- Always return a **cleanup function** for subscriptions, timers, and event listeners
+- Use `AbortController` for cancellable fetch requests
+- For production data fetching, prefer **React Query** over manual effects
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "When does useEffect run, and how does the dependency array control that?",
+    answer: "useEffect runs after React commits changes to the DOM and the browser has painted. With no dependency array, it runs after every render. With an empty array [], it runs once after the initial render (equivalent to componentDidMount). With dependencies, it runs after the initial render and again whenever any dependency value changes (shallow comparison). The cleanup function returned from a previous effect runs before the next effect execution and on component unmount.",
+    level: "junior"
+  },
+  {
+    question: "What causes infinite loops in useEffect and how do you prevent them?",
+    answer: "Infinite loops occur when: (1) you set state inside an effect without a dependency array or with that state in the dep array — each render triggers the effect which sets state which triggers a render. (2) You include objects or arrays in the dep array that get recreated each render (new reference even if same content). Prevention: ensure effects that set state have the right dependencies, use primitive values in deps, or stabilize references with useMemo/useCallback. The React ESLint plugin (eslint-plugin-react-hooks) catches missing and incorrect dependencies.",
+    level: "mid"
+  },
+  {
+    question: "How do you handle race conditions in useEffect data fetching?",
+    answer: "Race condition: user triggers effect A, then effect B. B resolves first, then A resolves — A's stale data overwrites B's fresh data. Solutions: (1) Track if the effect is still 'current' with a boolean flag: let cancelled = false; return () => { cancelled = true }; check !cancelled before setState. (2) Use AbortController: const controller = new AbortController(); fetch(url, { signal: controller.signal }); cleanup: controller.abort(). (3) Use React Query, which handles this automatically with request deduplication and cancellation. The AbortController approach is more correct because it actually cancels the network request rather than just ignoring the response.",
+    level: "senior"
+  },
+  {
+    question: "In React 18's Strict Mode, effects run twice in development. How does this affect your code and what does it reveal?",
+    answer: "React 18 Strict Mode intentionally mounts, unmounts, and remounts every component in development. Effects run twice with the cleanup in between. This reveals bugs: if your effect doesn't clean up properly, the double-mount exposes memory leaks, duplicate event listeners, stale subscriptions, or API calls that weren't cancelled. If your code is correct, the double-mount is idempotent. This is why cleanup functions are non-optional for production code — React is explicitly testing for proper cleanup. The fix is always to write proper cleanup, not to disable Strict Mode.",
+    level: "enterprise"
+  }
+]} />

@@ -1,0 +1,745 @@
+---
+title: Monorepo Architecture with Nx and React
+description: Learn how to structure, build, and scale large React codebases using a monorepo architecture. Covers Nx workspace setup, shared libraries, task caching, affected builds, and CI/CD strategies.
+category: Enterprise Architecture
+order: 1
+slug: enterprise/monorepo
+difficulty: enterprise
+estimatedTime: 60
+tags: [monorepo, nx, turborepo, lerna, enterprise, architecture, ci-cd, shared-libraries]
+lastUpdated: "2024-01-15"
+---
+
+# Monorepo Architecture with Nx and React
+
+As organizations grow, managing dozens of isolated React repositories becomes painful. Version drift between shared utilities, duplicated build configurations, and the overhead of coordinating releases across repos slow teams down. A monorepo — placing all your packages, apps, and libraries in a single repository — solves these problems at the cost of upfront tooling investment.
+
+<Callout type="info" title="What you'll learn">
+By the end of this guide you will understand what monorepos are and why companies like Google, Meta, and Microsoft use them; how to choose between Nx, Turborepo, and Lerna; how to set up an Nx workspace with multiple React apps and shared libraries; how to enforce module boundaries; and how to optimize CI/CD with affected-only builds.
+</Callout>
+
+## What Is a Monorepo?
+
+A monorepo is a single version-controlled repository that contains multiple distinct projects — applications, libraries, configuration packages, tooling — with well-defined relationships between them.
+
+**What a monorepo is NOT:**
+
+- A monolith. Each project inside the monorepo is independently deployable and has clear boundaries.
+- A single package. A monorepo contains many packages that may or may not be published to npm.
+- Just a shared folder. Monorepos require tooling to manage dependencies, task orchestration, and build caching.
+
+```
+my-company/
+├── apps/
+│   ├── dashboard/          # React app: internal dashboard
+│   ├── marketing-site/     # Next.js app: public website
+│   └── mobile/             # React Native app
+├── libs/
+│   ├── ui/                 # Shared component library
+│   ├── utils/              # Shared utility functions
+│   ├── types/              # Shared TypeScript types
+│   ├── api-client/         # Shared API client
+│   └── config/             # Shared ESLint/TS/Jest configs
+├── tools/
+│   └── scripts/            # Custom generators and workspace scripts
+├── nx.json
+├── package.json
+└── tsconfig.base.json
+```
+
+## Why Monorepos?
+
+### Shared Code Without npm Publishing
+
+In a polyrepo setup, sharing `@company/ui` requires publishing to npm, bumping versions, and running `npm update` across consuming repos. In a monorepo, sharing is a TypeScript path alias — no publish step needed during development.
+
+```json
+// tsconfig.base.json — paths resolve to local source
+{
+  "compilerOptions": {
+    "paths": {
+      "@company/ui": ["libs/ui/src/index.ts"],
+      "@company/utils": ["libs/utils/src/index.ts"],
+      "@company/types": ["libs/types/src/index.ts"]
+    }
+  }
+}
+```
+
+### Atomic Commits
+
+A single commit can update the `Button` component in `@company/ui` and all three apps that consume it. The change is visible, reviewable, and deployable as one unit — no "coordinating the release across 4 repos" dance.
+
+### Single CI Pipeline with Affected Builds
+
+Monorepo tools track which projects are affected by a change using a dependency graph. Instead of running all tests on every commit, you run only the tests for affected projects — achieving the safety of "test everything" with the speed of targeted builds.
+
+### Consistent Tooling
+
+One `.eslintrc`, one `jest.config.js` base, one TypeScript config. Every project follows the same standards without manual synchronization.
+
+## Tools Comparison
+
+<ComparisonTable
+  columns={["Feature", "Nx", "Turborepo", "Lerna"]}
+  rows={[
+    ["Maintained by", "Nrwl (now Nx Inc.)", "Vercel", "Community / Nrwl"],
+    ["Language", "TypeScript", "Rust (Go previously)", "JavaScript"],
+    ["Task caching", "Local + Nx Cloud (remote)", "Local + Vercel Remote Cache", "No built-in cache"],
+    ["Affected builds", "Yes (native, project graph)", "Yes (via package dependencies)", "Yes (via git diff)"],
+    ["Code generators", "Rich (nx generate)", "None built-in", "None built-in"],
+    ["Plugins ecosystem", "React, Angular, Next, Nest, Node, Go...", "None (bring your own)", "None"],
+    ["Module boundary enforcement", "Yes (ESLint plugin)", "No", "No"],
+    ["Distributed task execution", "Yes (Nx Cloud Agents)", "Yes (Vercel Remote)", "No"],
+    ["Framework-agnostic", "Yes", "Yes", "Yes"],
+    ["Learning curve", "Steeper (opinionated)", "Low (wraps existing scripts)", "Low (was npm workspaces helper)"],
+    ["Best for", "Large teams, complex graphs", "Simple multi-package repos", "Publishing npm packages"],
+  ]}
+/>
+
+<Callout type="tip" title="Which tool to choose?">
+**Nx** is the right choice when you have multiple React apps, shared libraries, and need generators, boundary enforcement, and rich caching. **Turborepo** is excellent for simpler setups or when you want minimal overhead on top of npm/yarn workspaces. **Lerna** has largely been superseded — use it only if you need granular npm publish workflows and already have it in place.
+</Callout>
+
+## Setting Up an Nx Workspace
+
+### Create a New Workspace
+
+```bash
+npx create-nx-workspace@latest my-company --preset=react-monorepo
+```
+
+You'll be prompted for the application name, bundler (Vite is recommended for React), and whether to use Nx Cloud for remote caching.
+
+For an existing codebase, you can add Nx incrementally:
+
+```bash
+npx nx@latest init
+```
+
+### Directory Structure After Setup
+
+```
+my-company/
+├── apps/
+│   └── dashboard/
+│       ├── src/
+│       │   ├── app/
+│       │   │   ├── app.tsx
+│       │   │   └── app.spec.tsx
+│       │   └── main.tsx
+│       ├── project.json
+│       ├── tsconfig.app.json
+│       └── vite.config.ts
+├── libs/
+├── nx.json
+├── package.json
+└── tsconfig.base.json
+```
+
+### nx.json — Workspace Configuration
+
+```json
+{
+  "$schema": "./node_modules/nx/schemas/nx-schema.json",
+  "namedInputs": {
+    "default": ["{projectRoot}/**/*", "sharedGlobals"],
+    "production": [
+      "default",
+      "!{projectRoot}/**/?(*.)+(spec|test).[jt]s?(x)",
+      "!{projectRoot}/tsconfig.spec.json"
+    ],
+    "sharedGlobals": ["{workspaceRoot}/babel.config.json"]
+  },
+  "targetDefaults": {
+    "build": {
+      "dependsOn": ["^build"],
+      "inputs": ["production", "^production"],
+      "cache": true
+    },
+    "test": {
+      "inputs": ["default", "^production", "{workspaceRoot}/jest.preset.js"],
+      "cache": true
+    },
+    "lint": {
+      "inputs": ["default", "{workspaceRoot}/.eslintrc.json"],
+      "cache": true
+    }
+  },
+  "defaultBase": "main"
+}
+```
+
+### project.json — Per-Project Configuration
+
+Each app and library has a `project.json` file that defines its targets (tasks):
+
+```json
+{
+  "name": "dashboard",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/dashboard/src",
+  "projectType": "application",
+  "tags": ["scope:dashboard", "type:app"],
+  "targets": {
+    "build": {
+      "executor": "@nx/vite:build",
+      "outputs": ["{options.outputPath}"],
+      "defaultConfiguration": "production",
+      "options": {
+        "outputPath": "dist/apps/dashboard"
+      },
+      "configurations": {
+        "development": {
+          "mode": "development"
+        },
+        "production": {
+          "mode": "production"
+        }
+      }
+    },
+    "serve": {
+      "executor": "@nx/vite:dev-server",
+      "defaultConfiguration": "development",
+      "options": {
+        "buildTarget": "dashboard:build"
+      }
+    },
+    "test": {
+      "executor": "@nx/vite:test",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"]
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "outputs": ["{options.outputFile}"]
+    }
+  }
+}
+```
+
+## Creating Shared Libraries
+
+### Generate a Shared UI Library
+
+```bash
+npx nx generate @nx/react:library ui \
+  --directory=libs/ui \
+  --bundler=vite \
+  --component=false \
+  --publishable \
+  --importPath=@company/ui
+```
+
+This creates `libs/ui/` with a configured project.json, tsconfig, vite config, and adds the path alias to `tsconfig.base.json`.
+
+### Generate a Utilities Library
+
+```bash
+npx nx generate @nx/js:library utils \
+  --directory=libs/utils \
+  --bundler=esbuild \
+  --publishable \
+  --importPath=@company/utils
+```
+
+### Generate a Types Library
+
+```bash
+npx nx generate @nx/js:library types \
+  --directory=libs/types \
+  --bundler=none \
+  --publishable \
+  --importPath=@company/types
+```
+
+A types-only library doesn't need a bundler — it ships raw TypeScript that consuming projects compile.
+
+### The Shared UI Library Structure
+
+```
+libs/ui/
+├── src/
+│   ├── lib/
+│   │   ├── button/
+│   │   │   ├── button.tsx
+│   │   │   ├── button.spec.tsx
+│   │   │   └── button.stories.tsx
+│   │   ├── input/
+│   │   │   ├── input.tsx
+│   │   │   └── input.spec.tsx
+│   │   └── modal/
+│   │       ├── modal.tsx
+│   │       └── modal.spec.tsx
+│   └── index.ts            # Public API barrel export
+├── project.json
+├── tsconfig.json
+├── tsconfig.lib.json
+└── vite.config.ts
+```
+
+```typescript
+// libs/ui/src/index.ts — only export what consumers need
+export { Button } from './lib/button/button';
+export type { ButtonProps } from './lib/button/button';
+export { Input } from './lib/input/input';
+export type { InputProps } from './lib/input/input';
+export { Modal } from './lib/modal/modal';
+export type { ModalProps } from './lib/modal/modal';
+```
+
+```typescript
+// libs/ui/src/lib/button/button.tsx
+import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import styles from './button.module.css';
+
+export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: 'primary' | 'secondary' | 'danger' | 'ghost';
+  size?: 'sm' | 'md' | 'lg';
+  loading?: boolean;
+  children: ReactNode;
+}
+
+export function Button({
+  variant = 'primary',
+  size = 'md',
+  loading = false,
+  children,
+  disabled,
+  className,
+  ...rest
+}: ButtonProps) {
+  return (
+    <button
+      {...rest}
+      disabled={disabled || loading}
+      className={[styles.button, styles[variant], styles[size], className]
+        .filter(Boolean)
+        .join(' ')}
+      aria-busy={loading}
+    >
+      {loading ? <span className={styles.spinner} aria-hidden="true" /> : null}
+      {children}
+    </button>
+  );
+}
+```
+
+### Consuming Shared Libraries in Apps
+
+```typescript
+// apps/dashboard/src/app/app.tsx
+import { Button } from '@company/ui';
+import { formatDate, capitalize } from '@company/utils';
+import type { User, ApiResponse } from '@company/types';
+
+export function App() {
+  return (
+    <div>
+      <Button variant="primary" onClick={() => console.log('clicked')}>
+        Get Started
+      </Button>
+    </div>
+  );
+}
+```
+
+Because the path alias resolves to local source, you get instant type checking, hot reloading, and no publish step.
+
+## Code Generators
+
+Nx generators scaffold consistent boilerplate. You can use built-in generators or write your own.
+
+### Built-in Generators
+
+```bash
+# Add a new React app
+npx nx generate @nx/react:app marketing-site --directory=apps/marketing-site
+
+# Add a new component to a library
+npx nx generate @nx/react:component Button --project=ui --directory=src/lib/button
+
+# Add a new library
+npx nx generate @nx/react:library auth --directory=libs/auth --importPath=@company/auth
+```
+
+### Custom Workspace Generators
+
+For team-specific patterns, write custom generators in `tools/generators/`:
+
+```typescript
+// tools/generators/feature/index.ts
+import {
+  Tree,
+  formatFiles,
+  generateFiles,
+  names,
+  joinPathFragments,
+} from '@nx/devkit';
+
+interface FeatureGeneratorSchema {
+  name: string;
+  project: string;
+}
+
+export async function featureGenerator(
+  tree: Tree,
+  options: FeatureGeneratorSchema
+) {
+  const { fileName, className } = names(options.name);
+
+  generateFiles(
+    tree,
+    joinPathFragments(__dirname, 'files'), // template folder
+    `libs/${options.project}/src/lib/${fileName}`,
+    {
+      ...options,
+      fileName,
+      className,
+      tmpl: '',
+    }
+  );
+
+  await formatFiles(tree);
+}
+
+export default featureGenerator;
+```
+
+Run it:
+
+```bash
+npx nx generate @my-company/tools:feature --name=user-profile --project=dashboard
+```
+
+## Task Caching
+
+Nx computes a hash of all inputs (source files, dependencies, environment variables, config) for a target. If the hash matches a previous run, it restores the cached output instantly — no execution needed.
+
+### Viewing the Cache in Action
+
+```bash
+# First run: computes and caches
+npx nx build dashboard
+# ... builds in 45 seconds
+
+# Second run with no changes: cache hit
+npx nx build dashboard
+# Nx read the output from the cache.
+# ✓ dashboard:build [local cache]
+```
+
+### Remote Caching with Nx Cloud
+
+```bash
+npx nx connect
+```
+
+After connecting, cache hits are shared across all developers and CI agents. A developer's build result can be reused by a CI job — eliminating redundant work.
+
+```json
+// nx.json — enable remote cache
+{
+  "nxCloudAccessToken": "your-token-here"
+}
+```
+
+## Affected Builds
+
+The most powerful CI optimization: only build/test what changed.
+
+```bash
+# Run tests only for projects affected by changes since main
+npx nx affected --target=test --base=main --head=HEAD
+
+# Build only affected apps
+npx nx affected --target=build --base=main --head=HEAD
+
+# See what's affected without running anything
+npx nx affected:graph --base=main --head=HEAD
+```
+
+<MermaidDiagram chart={`graph TD
+  A[libs/types] --> B[libs/api-client]
+  A --> C[libs/ui]
+  B --> D[apps/dashboard]
+  B --> E[apps/marketing-site]
+  C --> D
+  C --> E
+  style A fill:#ff6b6b,color:#fff
+  style B fill:#ff6b6b,color:#fff
+  style D fill:#ffd93d,color:#000
+  style E fill:#ffd93d,color:#000
+  style C fill:#6bcb77,color:#fff
+`} />
+
+In this graph, a change to `libs/types` affects `libs/api-client` (directly depends on types), which affects both apps. `libs/ui` does not depend on `libs/types` so it is not affected — its tests and builds are skipped.
+
+## Module Boundary Enforcement
+
+One of Nx's killer features: enforce architectural rules at lint time.
+
+### Tagging Projects
+
+```json
+// apps/dashboard/project.json
+{ "tags": ["scope:dashboard", "type:app"] }
+
+// apps/marketing-site/project.json
+{ "tags": ["scope:marketing", "type:app"] }
+
+// libs/ui/project.json
+{ "tags": ["scope:shared", "type:ui"] }
+
+// libs/utils/project.json
+{ "tags": ["scope:shared", "type:utils"] }
+
+// libs/dashboard-feature-auth/project.json
+{ "tags": ["scope:dashboard", "type:feature"] }
+```
+
+### ESLint Rules
+
+```json
+// .eslintrc.json
+{
+  "plugins": ["@nx"],
+  "rules": {
+    "@nx/enforce-module-boundaries": [
+      "error",
+      {
+        "enforceBuildableLibDependency": true,
+        "allow": [],
+        "depConstraints": [
+          {
+            "sourceTag": "scope:dashboard",
+            "onlyDependOnLibsWithTags": ["scope:dashboard", "scope:shared"]
+          },
+          {
+            "sourceTag": "scope:marketing",
+            "onlyDependOnLibsWithTags": ["scope:marketing", "scope:shared"]
+          },
+          {
+            "sourceTag": "type:app",
+            "onlyDependOnLibsWithTags": ["type:feature", "type:ui", "type:utils", "type:data-access"]
+          },
+          {
+            "sourceTag": "type:feature",
+            "onlyDependOnLibsWithTags": ["type:ui", "type:utils", "type:data-access"]
+          },
+          {
+            "sourceTag": "type:ui",
+            "onlyDependOnLibsWithTags": ["type:utils"]
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+With this config, if a developer tries to import a dashboard-scoped library from the marketing app, the lint step fails with a clear error:
+
+```
+A project tagged with "scope:marketing" can only depend on libs
+tagged with ["scope:marketing", "scope:shared"].
+```
+
+## Publishing Packages from a Monorepo
+
+When libraries need to be consumed by external teams or open-sourced, publish them to npm.
+
+### Version Strategy with Changesets
+
+```bash
+npm install --save-dev @changesets/cli
+npx changeset init
+```
+
+When making a change:
+
+```bash
+# Describe what changed and its severity
+npx changeset
+# ? Which packages would you like to include? @company/ui
+# ? What type of change is this? patch | minor | major
+# ? Summary: Add loading state to Button component
+```
+
+This creates a changeset file in `.changeset/`. In CI:
+
+```bash
+# Consume changesets, bump versions, update changelogs
+npx changeset version
+
+# Publish updated packages
+npx changeset publish
+```
+
+### Buildable Libraries
+
+For publishable libraries, configure proper build output:
+
+```json
+// libs/ui/project.json — targets for publishing
+{
+  "targets": {
+    "build": {
+      "executor": "@nx/vite:build",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/libs/ui",
+        "project": "libs/ui/vite.config.ts"
+      }
+    }
+  }
+}
+```
+
+```typescript
+// libs/ui/vite.config.ts
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import dts from 'vite-plugin-dts';
+import { resolve } from 'path';
+
+export default defineConfig({
+  plugins: [
+    react(),
+    dts({ include: ['src'], insertTypesEntry: true }),
+  ],
+  build: {
+    lib: {
+      entry: resolve(__dirname, 'src/index.ts'),
+      name: 'CompanyUI',
+      formats: ['es', 'cjs'],
+      fileName: (format) => `index.${format}.js`,
+    },
+    rollupOptions: {
+      external: ['react', 'react-dom'],
+      output: {
+        globals: { react: 'React', 'react-dom': 'ReactDOM' },
+      },
+    },
+  },
+});
+```
+
+## CI/CD Pipeline
+
+### GitHub Actions with Affected Builds
+
+```yaml
+# .github/workflows/ci.yml
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  NX_CLOUD_ACCESS_TOKEN: ${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
+
+jobs:
+  main:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # needed for affected to compare branches
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set base SHA for affected
+        uses: nrwl/nx-set-shas@v4
+
+      - name: Lint affected
+        run: npx nx affected --target=lint --parallel=3
+
+      - name: Test affected
+        run: npx nx affected --target=test --parallel=3 --coverage
+
+      - name: Build affected
+        run: npx nx affected --target=build --parallel=3
+
+  deploy:
+    needs: main
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set base SHA
+        uses: nrwl/nx-set-shas@v4
+
+      - name: Deploy affected apps
+        run: npx nx affected --target=deploy --parallel=1
+```
+
+### Distributed Task Execution (DTE)
+
+For very large workspaces, distribute tasks across multiple CI agents:
+
+```yaml
+# Main agent orchestrates
+- name: Start Nx agents
+  run: npx nx-cloud start-ci-run --distribute-on="3 linux-medium-js"
+
+# Each agent picks up tasks from the queue
+- name: Run distributed CI
+  run: npx nx affected --target=build,test,lint --parallel=3
+```
+
+## When Monorepos Are Overkill vs. Essential
+
+<ComparisonTable
+  columns={["Situation", "Recommendation", "Reason"]}
+  rows={[
+    ["Single app, one team", "Skip it", "Overhead of monorepo tooling outweighs benefits with no cross-project sharing"],
+    ["2–3 apps, isolated code", "Consider Turborepo", "Light orchestration without heavy Nx setup"],
+    ["Shared component library consumed by 2+ apps", "Use Nx monorepo", "Eliminates publish cycle, enables atomic changes"],
+    ["Multiple teams, strict ownership", "Nx with module boundaries", "Boundary enforcement prevents accidental cross-team coupling"],
+    ["10+ apps, shared design system", "Nx + Nx Cloud", "Remote caching and DTE become necessary at this scale"],
+    ["Open source multi-package project", "Lerna + Changesets", "npm publishing workflow is the primary concern"],
+    ["Separate deploy schedules per app", "Evaluate carefully", "Monorepo works but coordinate deployment tagging strategy"],
+    ["Different tech stacks (React + Python)", "Nx with language plugins", "Nx supports non-JS workspaces; orchestrate cross-language dependencies"],
+  ]}
+/>
+
+<Callout type="warning" title="Common monorepo pitfalls">
+- **Install time**: One `package.json` means one potentially huge `node_modules`. Use `npm workspaces` or `pnpm` (preferred for monorepos — it uses symlinks efficiently) to deduplicate.
+- **Git history**: All teams' commits appear in one log. Use conventional commits and enforce PR size limits.
+- **IDE performance**: IDEs can struggle with thousands of files. Configure `tsconfig.json` `include`/`exclude` to scope the project to what's needed.
+- **Circular dependencies**: Boundary rules prevent these, but audit with `npx nx graph` regularly.
+- **Secret sprawl**: Each app may need different environment variables. Use `.env` scoped to each app's directory.
+</Callout>
+
+## Summary
+
+A monorepo with Nx gives large React teams atomic cross-project changes, shared component libraries without npm overhead, consistent tooling, and dramatically faster CI through task caching and affected builds. The investment in setup pays dividends as the number of apps and shared libraries grows. Start with a clear library taxonomy (UI, utils, types, data-access, feature), enforce boundaries from day one, and connect to Nx Cloud before your CI queue becomes a bottleneck.
+
+<Callout type="success" title="Key commands cheat sheet">
+```bash
+npx nx serve dashboard              # Dev server
+npx nx build dashboard              # Production build
+npx nx test dashboard               # Unit tests
+npx nx lint dashboard               # Lint
+npx nx affected --target=test       # Test only affected projects
+npx nx graph                        # Visualize dependency graph
+npx nx generate @nx/react:library   # Scaffold a new library
+npx nx reset                        # Clear local cache
+```
+</Callout>

@@ -1,0 +1,290 @@
+---
+title: SPA vs MPA — Understanding the Architecture Difference
+description: Learn the difference between Single Page Applications and Multi Page Applications, why React is built for SPAs, and when to choose each architecture.
+category: Introduction
+order: 4
+slug: introduction/spa-vs-mpa
+difficulty: beginner
+estimatedTime: 10
+tags: [spa, mpa, architecture, react-router, navigation, rendering, single-page-application]
+lastUpdated: 2024-01-15
+---
+
+# SPA vs MPA
+
+Before you write your first React component, it helps to understand the architectural world React lives in. React is designed for building **Single Page Applications (SPAs)** — but what does that mean, and how does it differ from the traditional web?
+
+## What Is a Multi Page Application (MPA)?
+
+A **Multi Page Application** is the classic model of the web. Every time you navigate to a new URL, the browser makes a full HTTP request to the server. The server returns a completely new HTML document, and the browser replaces the entire page.
+
+Think of **Wikipedia**. Click any link and your browser:
+
+1. Sends a GET request to the server
+2. Receives a fresh HTML document
+3. Discards the current page entirely
+4. Parses and renders the new page from scratch
+
+This is the default behavior the web was built on.
+
+<MermaidDiagram chart={`
+sequenceDiagram
+    participant Browser
+    participant Server
+
+    Browser->>Server: GET /home (click Home link)
+    Server-->>Browser: Full HTML page for /home
+    Note over Browser: Re-renders entire page
+
+    Browser->>Server: GET /about (click About link)
+    Server-->>Browser: Full HTML page for /about
+    Note over Browser: Re-renders entire page again
+
+    Browser->>Server: GET /contact (click Contact link)
+    Server-->>Browser: Full HTML page for /contact
+    Note over Browser: Re-renders entire page again
+`} />
+
+## What Is a Single Page Application (SPA)?
+
+A **Single Page Application** loads a single HTML file once. After that initial load, navigation is handled entirely by JavaScript — the URL changes, the UI updates, but the browser never does a full page reload.
+
+Think of **Gmail**. Click on an email, click Compose, navigate to Settings — the page never fully reloads. JavaScript intercepts your clicks, fetches only the data it needs (via API calls), and re-renders just the parts of the UI that changed.
+
+<MermaidDiagram chart={`
+sequenceDiagram
+    participant Browser
+    participant Server
+    participant API
+
+    Browser->>Server: GET / (initial load)
+    Server-->>Browser: index.html + JS bundle
+    Note over Browser: App boots, JS takes over routing
+
+    Browser->>API: fetch /api/inbox (click Inbox)
+    API-->>Browser: JSON data
+    Note over Browser: JS updates UI — no page reload
+
+    Browser->>API: fetch /api/compose (click Compose)
+    API-->>Browser: JSON data
+    Note over Browser: JS updates UI — no page reload
+`} />
+
+<Callout type="info" title="The URL still changes in SPAs">
+Even though the page never reloads, SPAs update the URL using the browser's History API (`window.history.pushState`). This keeps URLs shareable and the back button functional. React Router manages this for you.
+</Callout>
+
+## Side-by-Side Comparison
+
+<ComparisonTable
+  columns={[
+    { key: 'aspect', label: 'Aspect' },
+    { key: 'spa', label: 'SPA', highlight: true },
+    { key: 'mpa', label: 'MPA' },
+  ]}
+  rows={[
+    {
+      feature: 'Initial load',
+      spa: 'Larger JS bundle download',
+      mpa: 'Fast — only HTML needed',
+    },
+    {
+      feature: 'Subsequent navigation',
+      spa: 'Instant — no server round trip',
+      mpa: 'Full page reload required',
+    },
+    {
+      feature: 'Server load',
+      spa: 'Low — serves JSON only after boot',
+      mpa: 'Higher — renders HTML per request',
+    },
+    {
+      feature: 'SEO',
+      spa: 'Needs extra work (SSR or prerendering)',
+      mpa: 'Excellent out of the box',
+    },
+    {
+      feature: 'User experience',
+      spa: 'App-like, smooth transitions',
+      mpa: 'Flash on navigation, more traditional',
+    },
+    {
+      feature: 'Caching',
+      spa: 'JS/CSS bundle cached after first load',
+      mpa: 'Each page cached separately',
+    },
+    {
+      feature: 'Complexity',
+      spa: 'Higher frontend complexity',
+      mpa: 'Simpler architecture',
+    },
+    {
+      feature: 'Examples',
+      spa: 'Gmail, Figma, Notion, Twitter/X',
+      mpa: 'Wikipedia, Amazon, news sites',
+    },
+  ]}
+/>
+
+## React Is Built for SPAs
+
+React's rendering model is fundamentally SPA-oriented. When you write:
+
+```tsx
+function App() {
+  return (
+    <Routes>
+      <Route path="/" element={<Home />} />
+      <Route path="/about" element={<About />} />
+      <Route path="/dashboard" element={<Dashboard />} />
+    </Routes>
+  )
+}
+```
+
+React Router intercepts clicks on `<Link>` components, updates the URL using the History API, and swaps out which component renders — all without a page reload. The server never sees these navigation events.
+
+### How React Router Enables SPA Navigation
+
+```tsx
+import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
+
+function App() {
+  return (
+    <BrowserRouter>
+      {/* Navigation — no <a> tags, no page reloads */}
+      <nav>
+        <Link to="/">Home</Link>
+        <Link to="/profile">Profile</Link>
+        <Link to="/settings">Settings</Link>
+      </nav>
+
+      {/* Only the matched route renders */}
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/profile" element={<ProfilePage />} />
+        <Route path="/settings" element={<SettingsPage />} />
+      </Routes>
+    </BrowserRouter>
+  )
+}
+```
+
+When a user clicks `<Link to="/profile">`, React Router:
+
+1. Calls `event.preventDefault()` to stop the browser's default navigation
+2. Calls `window.history.pushState({}, '', '/profile')` to update the URL
+3. Re-renders `<Routes>`, which now matches `/profile` and renders `<ProfilePage />`
+
+No server request. No flash. Instant.
+
+## The Initial Load Trade-off
+
+The biggest SPA disadvantage is the initial bundle size. On first visit, the browser must download, parse, and execute your entire JavaScript application before anything is interactive.
+
+```
+MPA — visiting /home:
+  GET /home → 50KB HTML → instant content ✅
+
+SPA — first visit:
+  GET / → 5KB HTML + 300KB JS bundle → parse → execute → render → content ✅
+  (but then all future navigation is instant)
+```
+
+This is why SPAs can feel slow on first load but fast afterward.
+
+<Callout type="tip" title="Code splitting solves the bundle problem">
+Modern React apps use **code splitting** with `React.lazy()` and dynamic `import()` to break the bundle into route-based chunks. Only the code needed for the current route is downloaded. This gives you SPA speed with MPA-like initial load times.
+</Callout>
+
+## The SEO Problem with SPAs
+
+Search engine crawlers traditionally read the HTML they receive from the server. A pure SPA sends nearly empty HTML:
+
+```html
+<!-- What a crawler sees before JS runs -->
+<!DOCTYPE html>
+<html>
+  <head><title>My App</title></head>
+  <body>
+    <div id="root"></div>  <!-- Empty! -->
+    <script src="/bundle.js"></script>
+  </body>
+</html>
+```
+
+Modern solutions:
+
+- **Server-Side Rendering (SSR)** — Next.js renders React on the server, sending full HTML
+- **Static Site Generation (SSG)** — Pre-render pages at build time
+- **Prerendering** — Use tools like `react-snap` to pre-render SPA routes
+
+<Callout type="info" title="Googlebot can execute JavaScript">
+Google's crawler does execute JavaScript now, but with a delay. Bing, social media crawlers (Twitter cards, Facebook OG), and many others still don't. For SEO-critical sites, use Next.js or Remix.
+</Callout>
+
+## Real-World Examples
+
+### SPAs in the wild
+
+| App | Why SPA makes sense |
+|-----|---------------------|
+| Gmail | Persistent sidebar, fast email switching, offline support |
+| Figma | Complex canvas state that can't survive page reloads |
+| Notion | Rich text editor with continuous autosave |
+| Twitter/X | Real-time feed, infinite scroll, no interruptions |
+| Trello | Drag-and-drop board state must persist across navigation |
+
+### MPAs in the wild
+
+| App | Why MPA makes sense |
+|-----|---------------------|
+| Wikipedia | Content-heavy, SEO-critical, simple navigation |
+| Amazon product pages | Each page is independently cacheable, SEO essential |
+| News sites | Article pages need full SEO, fast first contentful paint |
+| Government sites | Accessibility requirements, broad browser support |
+
+## When to Choose Which
+
+**Choose SPA (React default) when:**
+- Building a web *application* with complex user interactions
+- Users will navigate frequently within a session
+- You need app-like UX (no flash, smooth transitions)
+- SEO is secondary (dashboards, tools, authenticated areas)
+- You want to reuse a single API between web and mobile
+
+**Choose MPA (or add SSR) when:**
+- Building a content-heavy *website* (blog, e-commerce, news)
+- SEO is critical for every page
+- You need the fastest possible first contentful paint
+- Your audience is on slow connections or older devices
+- Each page is independently meaningful and shareable
+
+**The hybrid approach** — frameworks like **Next.js** let you mix both: SSR for public/SEO pages, SPA behavior for authenticated areas. This is increasingly the industry default for large applications.
+
+<Callout type="success" title="Key takeaway">
+React is a SPA library by default, but it doesn't have to be SPA-only. Understanding this architecture helps you make smarter decisions about routing, data fetching, and choosing between create-react-app, Vite, Next.js, or Remix for your project.
+</Callout>
+
+<InterviewQA questions={[
+  {
+    question: "What is the main difference between a Single Page Application and a Multi Page Application?",
+    answer: "In an MPA, every navigation triggers a full HTTP request and the server returns a complete new HTML page. In an SPA, only one HTML page is loaded initially; subsequent navigation is handled by JavaScript which updates the URL and re-renders components without a full page reload. SPAs feel more app-like with smooth transitions, while MPAs have simpler architecture and better out-of-the-box SEO.",
+    level: "junior"
+  },
+  {
+    question: "What is the SEO problem with SPAs and how do you solve it?",
+    answer: "SPAs send nearly empty HTML to the server — just a <div id='root'></div> — because content is rendered by JavaScript after the page loads. Many crawlers (especially social media bots) don't execute JavaScript, so they see empty pages. Solutions include: (1) Server-Side Rendering (SSR) with Next.js — React renders on the server before sending HTML, (2) Static Site Generation (SSG) — pre-render pages at build time, (3) prerendering tools that execute JS at build time and save static HTML. Modern apps often use SSR for public pages and SPA behavior for authenticated areas.",
+    level: "mid"
+  },
+  {
+    question: "How does React Router implement SPA navigation without page reloads?",
+    answer: "React Router uses the browser's History API. When a user clicks a <Link> component, React Router calls event.preventDefault() to stop the browser's default full-page navigation, then calls window.history.pushState() to update the URL in the address bar without a request. The <Routes> component watches for URL changes and re-renders whichever <Route> matches the new path. The server never receives a request for these navigations — it all happens client-side.",
+    level: "mid"
+  },
+  {
+    question: "Explain the trade-offs between SPA and MPA for a large e-commerce platform, and what architecture you would recommend.",
+    answer: "A large e-commerce platform has competing requirements. Product pages and category listings need excellent SEO and fast first contentful paint for organic traffic — these favor MPA/SSG. The shopping cart, checkout flow, and user account area involve complex state that should survive navigation without resets — these favor SPA. I would recommend a hybrid approach using Next.js or Remix: use SSR/SSG for product, category, and landing pages to optimize SEO and initial load, then use client-side SPA navigation once the user is engaged (cart, checkout, account, wishlist). Next.js App Router makes this pattern straightforward with server components for initial render and client components for interactive areas.",
+    level: "senior"
+  }
+]} />
