@@ -13,10 +13,10 @@ const ThemeContext = createContext<ThemeContextValue | null>(null)
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(() => {
     const stored = localStorage.getItem('theme') as Theme | null
-    return stored ?? 'system'
+    return stored ?? 'dark'
   })
 
-  const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>('light')
+  const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>('dark')
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
@@ -40,8 +40,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [theme])
 
   const setTheme = (t: Theme) => {
+    // Add transition class so background/text cross-fades smoothly
+    document.documentElement.classList.add('theme-transitioning')
     setThemeState(t)
     localStorage.setItem('theme', t)
+    setTimeout(() => document.documentElement.classList.remove('theme-transitioning'), 350)
   }
 
   const toggleTheme = () => {

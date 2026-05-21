@@ -50,6 +50,22 @@
       }
     }
     </script>
+    <!-- Theme init: runs before React to prevent flash of wrong theme.
+         Default is dark; respects stored preference. -->
+    <script>
+      (function () {
+        var stored = localStorage.getItem('theme')
+        // Default to dark when no preference is saved
+        var isDark = stored === 'dark' || stored === null
+        if (isDark) {
+          document.documentElement.classList.add('dark')
+          // Set bg immediately so there's no white flash before CSS loads
+          document.documentElement.style.backgroundColor = '#030712'
+        } else {
+          document.documentElement.style.backgroundColor = '#ffffff'
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

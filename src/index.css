@@ -47,6 +47,20 @@
     background: #9ca3af;
   }
 
+  /* Smooth theme transitions — only active during the 350ms toggle window */
+  .theme-transitioning,
+  .theme-transitioning *,
+  .theme-transitioning *::before,
+  .theme-transitioning *::after {
+    transition:
+      background-color 280ms ease,
+      border-color     280ms ease,
+      color            200ms ease,
+      box-shadow       280ms ease,
+      opacity          200ms ease !important;
+    transition-delay: 0ms !important;
+  }
+
   /* Focus visible */
   :focus-visible {
     @apply outline-none ring-2 ring-brand-500 ring-offset-2 ring-offset-white dark:ring-offset-gray-950;
