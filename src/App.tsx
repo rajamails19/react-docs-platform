@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Minimize2, Maximize2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { ThemeProvider } from '@/contexts/ThemeContext'
 import { ProgressProvider } from '@/contexts/ProgressContext'
 import { Home } from '@/pages/Home'
@@ -50,19 +50,23 @@ function RajaPanel({ isOpen, onToggle }: RajaPanelProps) {
         transition={{ type: 'spring', damping: 28, stiffness: 220 }}
         className="hidden xl:flex xl:flex-col xl:fixed xl:right-0 xl:top-0 xl:h-screen z-50 overflow-hidden border-l border-gray-200 dark:border-gray-800 bg-white/95 dark:bg-gray-950/95 backdrop-blur-sm"
       >
-        {/* ── Title bar with window-style minimize / maximize button ── */}
-        <div className="flex items-center justify-end px-3 pt-3 pb-1 flex-shrink-0">
-          <button
-            onClick={onToggle}
-            title={isOpen ? 'Minimise' : 'Maximise'}
-            className="flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-          >
-            {isOpen
-              ? <><Minimize2 size={12} /><span className="hidden xl:inline">minimise</span></>
-              : <><Maximize2 size={12} /><span className="hidden xl:inline">maximise</span></>
-            }
-          </button>
-        </div>
+        {/* ── Edge handle — subtle tab on the left border, like a panel resize grip ── */}
+        <button
+          onClick={onToggle}
+          title={isOpen ? 'Minimise panel' : 'Maximise panel'}
+          className="absolute -left-3 top-1/2 -translate-y-1/2 z-20
+                     flex items-center justify-center
+                     w-3 h-12 rounded-l-md
+                     bg-gray-200/80 dark:bg-gray-700/80
+                     hover:bg-brand-500 dark:hover:bg-brand-500
+                     text-gray-400 hover:text-white
+                     border border-r-0 border-gray-300 dark:border-gray-600
+                     cursor-pointer transition-all duration-150 shadow-sm group"
+        >
+          {isOpen
+            ? <ChevronRight size={10} className="shrink-0" />
+            : <ChevronLeft  size={10} className="shrink-0" />}
+        </button>
 
         {/* ── Photo + info — always visible, layout scales with state ── */}
         <div className="flex flex-col items-center justify-center flex-1 px-3 pb-4 text-center min-w-0">
