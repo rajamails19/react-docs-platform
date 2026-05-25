@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { Minimize2, Maximize2 } from 'lucide-react'
 import { ThemeProvider } from '@/contexts/ThemeContext'
 import { ProgressProvider } from '@/contexts/ProgressContext'
 import { Home } from '@/pages/Home'
@@ -19,6 +19,10 @@ function PageLoader() {
     </div>
   )
 }
+
+// Panel widths — photo is always visible in both states
+const W_EXPANDED  = 300   // full: large photo + name + title + quote
+const W_MINIMIZED = 96    // compact: small photo + name only
 
 interface RajaPanelProps {
   isOpen: boolean
@@ -39,66 +43,92 @@ function RajaPanel({ isOpen, onToggle }: RajaPanelProps) {
         </div>
       </aside>
 
-      {/* ── Desktop: collapsible right panel (xl+) ── */}
+      {/* ── Desktop: minimisable right panel (xl+) ── */}
       <motion.aside
         initial={false}
-        animate={{ width: isOpen ? 300 : 44 }}
+        animate={{ width: isOpen ? W_EXPANDED : W_MINIMIZED }}
         transition={{ type: 'spring', damping: 28, stiffness: 220 }}
         className="hidden xl:flex xl:flex-col xl:fixed xl:right-0 xl:top-0 xl:h-screen z-50 overflow-hidden border-l border-gray-200 dark:border-gray-800 bg-white/95 dark:bg-gray-950/95 backdrop-blur-sm"
       >
-        {/* Collapse / expand toggle — sits on the left edge of the panel */}
-        <button
-          onClick={onToggle}
-          title={isOpen ? 'Minimise panel' : 'Expand panel'}
-          className="absolute top-1/2 -translate-y-1/2 left-1.5 z-10 flex h-8 w-5 items-center justify-center rounded bg-gray-100 dark:bg-gray-800 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors shadow-sm"
-        >
-          {isOpen ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}
-        </button>
+        {/* ── Title bar with window-style minimize / maximize button ── */}
+        <div className="flex items-center justify-end px-3 pt-3 pb-1 flex-shrink-0">
+          <button
+            onClick={onToggle}
+            title={isOpen ? 'Minimise' : 'Maximise'}
+            className="flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+          >
+            {isOpen
+              ? <><Minimize2 size={12} /><span className="hidden xl:inline">minimise</span></>
+              : <><Maximize2 size={12} /><span className="hidden xl:inline">maximise</span></>
+            }
+          </button>
+        </div>
 
-        {/* Content fades in/out with the panel */}
-        <AnimatePresence>
-          {isOpen && (
-            <motion.div
-              key="panel-content"
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              transition={{ duration: 0.18 }}
-              className="flex flex-col items-center justify-center flex-1 p-6 text-center"
-            >
-              <div className="w-full aspect-square rounded-full overflow-hidden border-4 border-brand-600 shadow-2xl mb-6">
-                <img
-                  src="/Raja.jpg"
-                  alt="Raja"
-                  className="w-full h-full object-cover object-[center_0%] translate-y-4"
-                />
-              </div>
-              <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-1">Raja</h3>
-              <p className="text-brand-600 dark:text-brand-400 italic text-lg leading-tight mb-6">
-                Founder & Visionary
-              </p>
-              <p className="text-sm text-gray-400 dark:text-gray-500 leading-relaxed italic">
-                "Empowering developers to build the future, one component at a time."
-              </p>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {/* ── Photo + info — always visible, layout scales with state ── */}
+        <div className="flex flex-col items-center justify-center flex-1 px-3 pb-4 text-center min-w-0">
+
+          {/* Photo circle — large when expanded, compact when minimised */}
+          <motion.div
+            animate={{ width: isOpen ? 200 : 60, height: isOpen ? 200 : 60 }}
+            transition={{ type: 'spring', damping: 28, stiffness: 220 }}
+            className="rounded-full overflow-hidden flex-shrink-0"
+            style={{
+              border: `${isOpen ? 4 : 2}px solid #2563eb`,
+              boxShadow: isOpen ? '0 25px 50px -12px rgba(0,0,0,0.5)' : '0 4px 12px rgba(0,0,0,0.2)',
+            }}
+          >
+            <img
+              src="/Raja.jpg"
+              alt="Raja"
+              className="w-full h-full object-cover object-[center_0%]"
+              style={{ transform: isOpen ? 'translateY(12px)' : 'none', transition: 'transform 0.3s' }}
+            />
+          </motion.div>
+
+          {/* Name — always visible */}
+          <p
+            className="font-bold text-gray-900 dark:text-white leading-tight text-center w-full truncate transition-all duration-300"
+            style={{ fontSize: isOpen ? '1.2rem' : '0.65rem', marginTop: isOpen ? 20 : 8 }}
+          >
+            Raja
+          </p>
+
+          {/* Title + quote — only in expanded state */}
+          <AnimatePresence>
+            {isOpen && (
+              <motion.div
+                key="expanded-content"
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 6 }}
+                transition={{ duration: 0.2, delay: 0.05 }}
+                className="w-full"
+              >
+                <p className="text-brand-600 dark:text-brand-400 italic text-base leading-tight mt-1 mb-5">
+                  Founder & Visionary
+                </p>
+                <p className="text-sm text-gray-400 dark:text-gray-500 leading-relaxed italic">
+                  "Empowering developers to build the future, one component at a time."
+                </p>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </motion.aside>
     </>
   )
 }
 
 export default function App() {
-  // Persist open/closed preference in localStorage
   const [panelOpen, setPanelOpen] = useState<boolean>(() => {
-    try { return localStorage.getItem('raja-panel') !== 'closed' }
+    try { return localStorage.getItem('raja-panel') !== 'minimised' }
     catch { return true }
   })
 
   const togglePanel = () => {
     setPanelOpen(prev => {
       const next = !prev
-      try { localStorage.setItem('raja-panel', next ? 'open' : 'closed') } catch {}
+      try { localStorage.setItem('raja-panel', next ? 'open' : 'minimised') } catch {}
       return next
     })
   }
@@ -109,18 +139,12 @@ export default function App() {
         <ProgressProvider>
           <RajaPanel isOpen={panelOpen} onToggle={togglePanel} />
 
-          {/*
-            Content wrapper:
-            - pt-16 on mobile: clears the fixed top bar (RajaPanel)
-            - xl:pt-0: RajaPanel becomes a right panel, no top offset needed
-            - xl:mr-[300px] / xl:mr-[44px]: mirror the panel's open/closed width
-            - transition-[margin-right]: smooth CSS slide that mirrors the spring
-          */}
+          {/* Right margin mirrors the panel width at xl+ */}
           <div
             className={[
               'pt-16 xl:pt-0',
               'transition-[margin-right] duration-300 ease-out',
-              panelOpen ? 'xl:mr-[300px]' : 'xl:mr-[44px]',
+              panelOpen ? 'xl:mr-[300px]' : 'xl:mr-[96px]',
             ].join(' ')}
           >
             <Suspense fallback={<PageLoader />}>
