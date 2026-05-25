@@ -60,7 +60,7 @@ export function DocsLayout({ children }: DocsLayoutProps) {
               animate={{ x: 0 }}
               exit={{ x: -300 }}
               transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-              className="fixed top-14 left-0 bottom-0 z-40 w-72 border-r border-gray-200 dark:border-gray-800 lg:hidden"
+              className="fixed top-[7.5rem] left-0 bottom-0 z-40 w-72 border-r border-gray-200 dark:border-gray-800 lg:hidden"
             >
               <Sidebar onClose={() => setMobileMenuOpen(false)} />
             </motion.div>
@@ -71,7 +71,7 @@ export function DocsLayout({ children }: DocsLayoutProps) {
       {/* Main layout */}
       <div className="flex">
         {/* Desktop sidebar */}
-        <div className="hidden lg:flex lg:flex-col lg:fixed lg:top-14 lg:bottom-0 lg:w-64 lg:border-r lg:border-gray-200 dark:lg:border-gray-800">
+        <div className="hidden lg:flex lg:flex-col lg:fixed lg:top-[7.5rem] xl:top-14 lg:bottom-0 lg:w-64 lg:border-r lg:border-gray-200 dark:lg:border-gray-800">
           <Sidebar />
         </div>
 
@@ -90,8 +90,8 @@ export function DocsLayout({ children }: DocsLayoutProps) {
               </motion.div>
             </main>
 
-            {/* TOC — only mounts on xl+ to not consume flex-row space on mobile */}
-            <div className="hidden xl:block shrink-0 w-56 px-4 py-8">
+            {/* TOC — 2xl+ only so it doesn't overlap the fixed Raja panel on xl screens */}
+            <div className="hidden 2xl:block shrink-0 w-56 px-4 py-8">
               <TableOfContents headings={headings} activeId={activeId} />
             </div>
           </div>
