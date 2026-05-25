@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { TableOfContents } from '@/components/layout/TableOfContents'
@@ -16,7 +17,19 @@ interface DocsLayoutProps {
 
 export function DocsLayout({ children }: DocsLayoutProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
+    try { return localStorage.getItem('docs-sidebar') !== 'closed' }
+    catch { return true }
+  })
   const { isOpen, open, close } = useSearch()
+
+  const toggleSidebar = () => {
+    setSidebarOpen(prev => {
+      const next = !prev
+      try { localStorage.setItem('docs-sidebar', next ? 'open' : 'closed') } catch {}
+      return next
+    })
+  }
   const contentRef = useRef<HTMLDivElement>(null)
   const { headings, activeId } = useTableOfContents(contentRef as React.RefObject<HTMLElement>)
   const location = useLocation()
@@ -73,13 +86,39 @@ export function DocsLayout({ children }: DocsLayoutProps) {
 
       {/* Main layout */}
       <div className="flex">
-        {/* Desktop sidebar */}
-        <div className="hidden lg:flex lg:flex-col lg:fixed lg:top-[7.5rem] xl:top-14 lg:bottom-0 lg:w-64 lg:border-r lg:border-gray-200 dark:lg:border-gray-800">
-          <Sidebar />
-        </div>
+        {/* Desktop sidebar — collapses to icon-strip like RajaPanel, never fully hidden */}
+        <motion.div
+          animate={{ width: sidebarOpen ? 256 : 80 }}
+          transition={{ type: 'spring', damping: 28, stiffness: 220 }}
+          className="hidden lg:block lg:fixed lg:left-0 lg:top-[7.5rem] xl:top-14 lg:bottom-0 z-30"
+        >
+          {/* Edge handle — protrudes to the right */}
+          <button
+            onClick={toggleSidebar}
+            title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+            className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-full z-20
+                       w-4 h-14 flex items-center justify-center rounded-r-lg
+                       bg-gray-200 dark:bg-gray-700
+                       hover:bg-brand-500 dark:hover:bg-brand-500
+                       text-gray-500 hover:text-white
+                       border border-l-0 border-gray-300 dark:border-gray-600
+                       transition-colors duration-150 shadow"
+          >
+            {sidebarOpen ? <ChevronLeft size={11} /> : <ChevronRight size={11} />}
+          </button>
 
-        {/* Content area */}
-        <div className="flex-1 lg:ml-64">
+          {/* w-full fills the animated parent — overflow-hidden clips text, leaving icons visible */}
+          <div className="h-full w-full overflow-hidden border-r border-gray-200 dark:border-gray-800">
+            <Sidebar />
+          </div>
+        </motion.div>
+
+        {/* Content area — margin matches minimized sidebar width (48px = ml-12) */}
+        <div className={[
+          'flex-1',
+          'transition-[margin-left] duration-300 ease-out',
+          sidebarOpen ? 'lg:ml-64' : 'lg:ml-20',
+        ].join(' ')}>
           <div className="flex max-w-screen-xl mx-auto">
             {/* Main content */}
             <main className="flex-1 min-w-0 px-6 py-8 lg:px-10" ref={contentRef}>
