@@ -14,7 +14,7 @@ export function Header({ onSearchOpen, onMobileMenuToggle, mobileMenuOpen }: Hea
   const { completionPercentage } = useProgress()
 
   return (
-    <header className="sticky top-16 xl:top-0 z-40 w-full border-b border-gray-200 dark:border-gray-800 bg-white/95 dark:bg-gray-950/95 backdrop-blur supports-[backdrop-filter]:bg-white/80 dark:supports-[backdrop-filter]:bg-gray-950/80">
+    <header className="fixed top-16 xl:top-0 left-0 right-0 xl:right-[300px] z-40 border-b border-gray-200 dark:border-gray-800 bg-white/95 dark:bg-gray-950/95 backdrop-blur supports-[backdrop-filter]:bg-white/80 dark:supports-[backdrop-filter]:bg-gray-950/80">
       <div className="flex h-14 items-center gap-4 px-4 sm:px-6">
 
         {/* Mobile menu button */}

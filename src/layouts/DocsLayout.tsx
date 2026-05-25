@@ -68,6 +68,9 @@ export function DocsLayout({ children }: DocsLayoutProps) {
         )}
       </AnimatePresence>
 
+      {/* Spacer — replaces the vertical space the now-fixed header used to occupy */}
+      <div className="h-14" />
+
       {/* Main layout */}
       <div className="flex">
         {/* Desktop sidebar */}

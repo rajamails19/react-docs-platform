@@ -251,6 +251,8 @@ export function Home() {
         onMobileMenuToggle={() => {}}
         mobileMenuOpen={false}
       />
+      {/* Spacer — replaces the vertical space the now-fixed header used to occupy */}
+      <div className="h-14" />
 
       {/* Hero */}
       <section className="relative overflow-hidden border-b border-gray-200 dark:border-gray-800">
